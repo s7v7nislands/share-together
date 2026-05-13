@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Share Together</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <a class="brand" href="/">Share Together</a>
+        <button id="create-room" class="primary">Create room</button>
+      </header>
+
+      <section id="home" class="home">
+        <h1>Shared article rooms for small groups</h1>
+        <p>Create a private-by-link room, paste article URLs, and let the group upvote what is worth reading.</p>
+        <button id="home-create-room" class="primary large">Create room</button>
+      </section>
+
+      <section id="room" class="room hidden">
+        <div class="room-head">
+          <div>
+            <p class="eyebrow">Room</p>
+            <h1 id="room-title"></h1>
+          </div>
+          <button id="copy-room" class="secondary">Copy link</button>
+        </div>
+
+        <form id="submit-link" class="submit-form">
+          <input id="url-input" name="url" type="url" placeholder="https://example.com/article" required>
+          <button class="primary" type="submit">Share URL</button>
+        </form>
+        <p id="notice" class="notice" role="status"></p>
+
+        <div class="tabs" role="tablist" aria-label="Sort links">
+          <button class="tab active" data-sort="newest" type="button">Newest</button>
+          <button class="tab" data-sort="hot" type="button">Hot</button>
+        </div>
+
+        <div id="links" class="links"></div>
+        <p id="empty" class="empty hidden">No links yet. Share the first article.</p>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
