@@ -65,6 +65,8 @@ input {
 .primary,
 .secondary,
 .tab,
+.tag,
+.tag-filter,
 .vote,
 .delete {
   border: 1px solid transparent;
@@ -115,7 +117,7 @@ input {
 
 .submit-form {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1.6fr) minmax(180px, 0.8fr) auto;
   gap: 10px;
   margin: 18px 0 8px;
 }
@@ -155,6 +157,55 @@ input {
   background: #fff;
   color: #24211c;
   border-color: #d9d2c5;
+}
+
+.tag-filters,
+.link-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-filters {
+  margin: -6px 0 18px;
+}
+
+.tag,
+.tag-filter {
+  background: #f6f1e8;
+  border-color: #ded5c6;
+  color: #5a4f43;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.tag::before,
+.tag-filter::before {
+  content: "#";
+  color: #8c4f2b;
+}
+
+.tag-filter[data-filter="all"]::before {
+  content: "";
+}
+
+.tag-filter.active {
+  background: #165a4c;
+  border-color: #165a4c;
+  color: #fff;
+}
+
+.tag-filter.active::before {
+  color: #dcebe4;
+}
+
+.link-tags {
+  margin: 8px 0 2px;
+}
+
+.tag {
+  cursor: pointer;
+  font-size: 0.84rem;
 }
 
 .links {

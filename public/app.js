@@ -1,6 +1,7 @@
 const state = {
   roomSlug: roomSlugFromPath(),
   sort: "newest",
+  selectedTag: null,
   links: [],
   clientId: getOrCreate("share_together_client_id", () => crypto.randomUUID()),
   adminKey: null
@@ -15,8 +16,10 @@ const els = {
   roomTitle: document.querySelector("#room-title"),
   form: document.querySelector("#submit-link"),
   urlInput: document.querySelector("#url-input"),
+  tagsInput: document.querySelector("#tags-input"),
   notice: document.querySelector("#notice"),
   tabs: document.querySelectorAll(".tab"),
+  tagFilters: document.querySelector("#tag-filters"),
   links: document.querySelector("#links"),
   empty: document.querySelector("#empty")
 };
@@ -55,15 +58,18 @@ async function createRoom() {
 async function submitLink(event) {
   event.preventDefault();
   const url = els.urlInput.value.trim();
+  const tags = parseTagInput(els.tagsInput.value);
   if (!url) return;
 
   setNotice("Parsing link...");
   try {
     const response = await api(`/api/rooms/${state.roomSlug}/links`, {
       method: "POST",
-      body: { url, client_id: state.clientId }
+      body: { url, tags, client_id: state.clientId }
     });
     els.urlInput.value = "";
+    els.tagsInput.value = "";
+    state.selectedTag = tags[0] || state.selectedTag;
     setNotice(response.duplicate ? "That URL was already shared in this room." : "Shared.");
     await loadLinks();
   } catch (error) {
@@ -101,8 +107,13 @@ async function deleteLink(link) {
 }
 
 function renderLinks() {
-  els.empty.classList.toggle("hidden", state.links.length > 0);
-  els.links.replaceChildren(...state.links.map(renderLink));
+  const visibleLinks = filteredLinks();
+  renderTagFilters();
+  els.empty.classList.toggle("hidden", visibleLinks.length > 0);
+  els.empty.textContent = state.selectedTag
+    ? `No links tagged "${state.selectedTag}" yet.`
+    : "No links yet. Share the first article.";
+  els.links.replaceChildren(...visibleLinks.map(renderLink));
 }
 
 function renderLink(link) {
@@ -122,6 +133,23 @@ function renderLink(link) {
   title.textContent = link.title || link.canonical_url;
 
   content.append(meta, title);
+
+  if (link.tags?.length) {
+    const tags = document.createElement("div");
+    tags.className = "link-tags";
+    for (const tagName of link.tags) {
+      const tag = document.createElement("button");
+      tag.className = "tag";
+      tag.type = "button";
+      tag.textContent = tagName;
+      tag.addEventListener("click", () => {
+        state.selectedTag = tagName;
+        renderLinks();
+      });
+      tags.append(tag);
+    }
+    content.append(tags);
+  }
 
   if (link.description) {
     const description = document.createElement("p");
@@ -166,6 +194,79 @@ function renderLink(link) {
   }
 
   return card;
+}
+
+function renderTagFilters() {
+  const tags = allTags();
+  if (!tags.length) {
+    state.selectedTag = null;
+    els.tagFilters.classList.add("hidden");
+    els.tagFilters.replaceChildren();
+    return;
+  }
+
+  if (state.selectedTag && !tags.some((tag) => sameTag(tag, state.selectedTag))) {
+    state.selectedTag = null;
+  }
+
+  const all = document.createElement("button");
+  all.className = `tag-filter${state.selectedTag ? "" : " active"}`;
+  all.dataset.filter = "all";
+  all.type = "button";
+  all.textContent = "All tags";
+  all.addEventListener("click", () => {
+    state.selectedTag = null;
+    renderLinks();
+  });
+
+  const buttons = tags.map((tagName) => {
+    const button = document.createElement("button");
+    button.className = `tag-filter${sameTag(tagName, state.selectedTag) ? " active" : ""}`;
+    button.type = "button";
+    button.textContent = tagName;
+    button.addEventListener("click", () => {
+      state.selectedTag = tagName;
+      renderLinks();
+    });
+    return button;
+  });
+
+  els.tagFilters.classList.remove("hidden");
+  els.tagFilters.replaceChildren(all, ...buttons);
+}
+
+function filteredLinks() {
+  if (!state.selectedTag) return state.links;
+  return state.links.filter((link) => link.tags?.some((tag) => sameTag(tag, state.selectedTag)));
+}
+
+function allTags() {
+  const tags = new Map();
+  for (const link of state.links) {
+    for (const tag of link.tags || []) {
+      const key = tag.toLowerCase();
+      if (!tags.has(key)) tags.set(key, tag);
+    }
+  }
+  return [...tags.values()].sort((a, b) => a.localeCompare(b));
+}
+
+function parseTagInput(value) {
+  const tags = [];
+  const seen = new Set();
+  for (const rawTag of value.split(",")) {
+    const tag = rawTag.trim().replace(/^#+/, "").replace(/\s+/g, " ").slice(0, 32);
+    const key = tag.toLowerCase();
+    if (!tag || seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+    if (tags.length >= 8) break;
+  }
+  return tags;
+}
+
+function sameTag(left, right) {
+  return left?.toLowerCase() === right?.toLowerCase();
 }
 
 async function api(path, options = {}) {

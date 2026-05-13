@@ -89,6 +89,7 @@ async function handleApi(request, env, url) {
     const canonicalUrl = normalizeUrl(body.url || "");
     assertPublicHttpUrl(canonicalUrl);
     const sourceHost = getSourceHost(canonicalUrl);
+    const tags = normalizeTags(body.tags);
 
     const existing = await env.DB.prepare(
       "SELECT * FROM links WHERE room_id = ? AND canonical_url = ? AND deleted_at IS NULL"
@@ -107,13 +108,14 @@ async function handleApi(request, env, url) {
       description: metadata.description || null,
       image_url: metadata.image_url || null,
       source_host: sourceHost,
-      metadata_status: metadata.status
+      metadata_status: metadata.status,
+      tags: JSON.stringify(tags)
     };
 
     await env.DB.prepare(
       `INSERT INTO links
-       (id, room_id, original_url, canonical_url, title, description, image_url, source_host, metadata_status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, room_id, original_url, canonical_url, title, description, image_url, source_host, metadata_status, tags, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       link.id,
       room.id,
@@ -124,6 +126,7 @@ async function handleApi(request, env, url) {
       link.image_url,
       link.source_host,
       link.metadata_status,
+      link.tags,
       now
     ).run();
     await touchRoom(env, room.id);
@@ -230,10 +233,42 @@ function serializeLink(link) {
     image_url: link.image_url,
     source_host: link.source_host,
     metadata_status: link.metadata_status,
+    tags: parseTags(link.tags),
     upvote_count: link.upvote_count || 0,
     created_at: link.created_at,
     viewer_has_upvoted: Boolean(link.viewer_vote_id)
   };
+}
+
+export function normalizeTags(value) {
+  const rawTags = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+
+  const seen = new Set();
+  const tags = [];
+  for (const rawTag of rawTags) {
+    if (typeof rawTag !== "string") continue;
+    const tag = rawTag.trim().replace(/^#+/, "").replace(/\s+/g, " ").slice(0, 32);
+    const key = tag.toLowerCase();
+    if (!tag || seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+    if (tags.length >= 8) break;
+  }
+  return tags;
+}
+
+export function parseTags(value) {
+  if (!value) return [];
+  try {
+    const tags = JSON.parse(value);
+    return Array.isArray(tags) ? normalizeTags(tags) : [];
+  } catch {
+    return [];
+  }
 }
 
 function sanitizeClientId(value) {
