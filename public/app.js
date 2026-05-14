@@ -17,6 +17,7 @@ const els = {
   form: document.querySelector("#submit-link"),
   urlInput: document.querySelector("#url-input"),
   tagsInput: document.querySelector("#tags-input"),
+  recommendationInput: document.querySelector("#recommendation-input"),
   notice: document.querySelector("#notice"),
   tabs: document.querySelectorAll(".tab"),
   tagFilters: document.querySelector("#tag-filters"),
@@ -59,16 +60,18 @@ async function submitLink(event) {
   event.preventDefault();
   const url = els.urlInput.value.trim();
   const tags = parseTagInput(els.tagsInput.value);
+  const recommendationNote = normalizeRecommendationNote(els.recommendationInput.value);
   if (!url) return;
 
   setNotice("Parsing link...");
   try {
     const response = await api(`/api/rooms/${state.roomSlug}/links`, {
       method: "POST",
-      body: { url, tags, client_id: state.clientId }
+      body: { url, tags, recommendation_note: recommendationNote, client_id: state.clientId }
     });
     els.urlInput.value = "";
     els.tagsInput.value = "";
+    els.recommendationInput.value = "";
     state.selectedTag = tags[0] || state.selectedTag;
     setNotice(response.duplicate ? "That URL was already shared in this room." : "Shared.");
     await loadLinks();
@@ -133,6 +136,13 @@ function renderLink(link) {
   title.textContent = link.title || link.canonical_url;
 
   content.append(meta, title);
+
+  if (link.recommendation_note) {
+    const recommendation = document.createElement("p");
+    recommendation.className = "recommendation";
+    recommendation.textContent = link.recommendation_note;
+    content.append(recommendation);
+  }
 
   if (link.tags?.length) {
     const tags = document.createElement("div");
@@ -263,6 +273,11 @@ function parseTagInput(value) {
     if (tags.length >= 8) break;
   }
   return tags;
+}
+
+function normalizeRecommendationNote(value) {
+  const note = value.trim().replace(/\s+/g, " ").slice(0, 280);
+  return note || null;
 }
 
 function sameTag(left, right) {

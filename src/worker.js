@@ -90,6 +90,7 @@ async function handleApi(request, env, url) {
     assertPublicHttpUrl(canonicalUrl);
     const sourceHost = getSourceHost(canonicalUrl);
     const tags = normalizeTags(body.tags);
+    const recommendationNote = normalizeRecommendationNote(body.recommendation_note);
 
     const existing = await env.DB.prepare(
       "SELECT * FROM links WHERE room_id = ? AND canonical_url = ? AND deleted_at IS NULL"
@@ -109,13 +110,14 @@ async function handleApi(request, env, url) {
       image_url: metadata.image_url || null,
       source_host: sourceHost,
       metadata_status: metadata.status,
-      tags: JSON.stringify(tags)
+      tags: JSON.stringify(tags),
+      recommendation_note: recommendationNote
     };
 
     await env.DB.prepare(
       `INSERT INTO links
-       (id, room_id, original_url, canonical_url, title, description, image_url, source_host, metadata_status, tags, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, room_id, original_url, canonical_url, title, description, image_url, source_host, metadata_status, tags, recommendation_note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       link.id,
       room.id,
@@ -127,6 +129,7 @@ async function handleApi(request, env, url) {
       link.source_host,
       link.metadata_status,
       link.tags,
+      link.recommendation_note,
       now
     ).run();
     await touchRoom(env, room.id);
@@ -234,6 +237,7 @@ function serializeLink(link) {
     source_host: link.source_host,
     metadata_status: link.metadata_status,
     tags: parseTags(link.tags),
+    recommendation_note: link.recommendation_note || null,
     upvote_count: link.upvote_count || 0,
     created_at: link.created_at,
     viewer_has_upvoted: Boolean(link.viewer_vote_id)
@@ -269,6 +273,12 @@ export function parseTags(value) {
   } catch {
     return [];
   }
+}
+
+export function normalizeRecommendationNote(value) {
+  if (typeof value !== "string") return null;
+  const note = value.trim().replace(/\s+/g, " ").slice(0, 280);
+  return note || null;
 }
 
 function sanitizeClientId(value) {
