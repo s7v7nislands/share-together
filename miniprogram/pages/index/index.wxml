@@ -1,0 +1,20 @@
+<!-- pages/index/index.wxml — Home page -->
+<view class="page">
+  <view class="hero">
+    <view class="brand">Share Together</view>
+    <text class="hero-title">小圈子共享链接间</text>
+    <text class="hero-desc">创建私密房间，分享文章链接，让大家一起投票出最值得读的内容。</text>
+    <button class="primary-btn create-btn" bindtap="createRoom" loading="{{creating}}">
+      {{creating ? '创建中…' : '创建房间'}}
+    </button>
+  </view>
+
+  <view class="join-section">
+    <text class="join-label">已有房间链接？输入房间 ID 进入：</text>
+    <view class="join-row">
+      <input class="join-input" placeholder="room-xxxxxxxxxxxxxxxx" value="{{joinSlug}}" bindinput="onJoinSlugInput" />
+      <button class="secondary-btn join-btn" bindtap="joinRoom">进入</button>
+    </view>
+    <text class="notice-text">{{notice}}</text>
+  </view>
+</view>
