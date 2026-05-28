@@ -1,0 +1,153 @@
+<!-- pages/room/room.wxml — Room page -->
+<view class="page">
+  <!-- Header -->
+  <view class="room-head">
+    <view class="room-info">
+      <text class="eyebrow">ROOM</text>
+      <text class="room-slug" selectable>{{slug}}</text>
+    </view>
+    <button class="secondary-btn share-btn" bindtap="shareRoom">分享房间</button>
+  </view>
+
+  <!-- Submit form -->
+  <view class="submit-form">
+    <input class="form-input url-input" placeholder="https://example.com/article" value="{{formUrl}}" bindinput="onUrlInput" type="url" />
+    <input class="form-input" placeholder="标签，逗号分隔（可选）" value="{{formTags}}" bindinput="onTagsInput" />
+    <input class="form-input" placeholder="推荐理由（可选，最多280字）" value="{{formNote}}" bindinput="onNoteInput" maxlength="280" />
+    <button class="primary-btn submit-btn" bindtap="submitLink" loading="{{submitting}}">
+      {{submitting ? '分享中…' : '分享'}}
+    </button>
+  </view>
+  <text class="notice-text">{{notice}}</text>
+
+  <!-- Sort tabs -->
+  <view class="tabs">
+    <button class="tab {{sort === 'newest' ? 'active' : ''}}" data-sort="newest" bindtap="changeSort">最新</button>
+    <button class="tab {{sort === 'hot' ? 'active' : ''}}" data-sort="hot" bindtap="changeSort">热门</button>
+  </view>
+
+  <!-- Tag filters -->
+  <scroll-view class="tag-filters {{allTags.length ? '' : 'hidden'}}" scroll-x>
+    <button class="tag-filter {{!selectedTag ? 'active' : ''}}" bindtap="clearTagFilter">全部</button>
+    <button
+      wx:for="{{allTags}}"
+      wx:key="*this"
+      class="tag-filter {{selectedTag === item ? 'active' : ''}}"
+      data-tag="{{item}}"
+      bindtap="selectTag"
+    >#{{item}}</button>
+  </scroll-view>
+
+  <!-- Link list -->
+  <view class="links" wx:if="{{visibleLinks.length}}">
+    <view
+      wx:for="{{visibleLinks}}"
+      wx:key="id"
+      class="link-card"
+    >
+      <!-- Thumbnail -->
+      <image wx:if="{{item.image_url}}" class="thumb" src="{{item.image_url}}" mode="aspectFill" lazy-load />
+
+      <!-- Content -->
+      <view class="link-content">
+        <text class="meta">{{item.source_host}} · {{item.relativeTime}}</text>
+        <view bindtap="openLink" data-url="{{item.canonical_url}}">
+          <text class="link-title">{{item.title || item.canonical_url}}</text>
+        </view>
+
+        <text wx:if="{{item.recommendation_note}}" class="recommendation">{{item.recommendation_note}}</text>
+
+        <!-- Tags -->
+        <view wx:if="{{item.tags.length}}" class="link-tags">
+          <text
+            wx:for="{{item.tags}}"
+            wx:for-item="tag"
+            wx:key="*this"
+            class="tag"
+            data-tag="{{tag}}"
+            bindtap="selectTag"
+          >#{{tag}}</text>
+        </view>
+
+        <text wx:if="{{item.description}}" class="description">{{item.description}}</text>
+
+        <!-- Actions -->
+        <view class="actions">
+          <button class="vote-btn {{item.viewer_has_upvoted ? 'active' : ''}}" data-id="{{item.id}}" data-upvoted="{{item.viewer_has_upvoted}}" bindtap="toggleVote">
+            ▲ {{item.upvote_count}}
+          </button>
+          <button class="comment-toggle {{expandedComments[item.id] ? 'active' : ''}}" data-id="{{item.id}}" bindtap="toggleComments">
+            💬 {{item.comment_count > 0 ? item.comment_count : '评论'}}
+          </button>
+          <button class="edit-btn" data-id="{{item.id}}" data-tags="{{item.tagsStr}}" data-note="{{item.recommendation_note}}" bindtap="openEditModal">✏️ 编辑</button>
+          <button wx:if="{{adminKey}}" class="delete-btn" data-id="{{item.id}}" bindtap="deleteLink">删除</button>
+        </view>
+
+        <!-- Comment section -->
+        <view wx:if="{{expandedComments[item.id]}}" class="comment-section">
+          <view wx:if="{{commentCache[item.id].length}}" class="comment-list">
+            <view wx:for="{{commentCache[item.id]}}" wx:key="id" wx:for-item="comment">
+              <view class="comment-body">
+                <text class="comment-meta">匿名 · {{comment.relativeTime}}</text>
+                <text class="comment-content selectable">{{comment.content}}</text>
+                <!-- Attachments -->
+                <view wx:if="{{comment.attachments.length}}" class="comment-attachments">
+                  <view wx:for="{{comment.attachments}}" wx:key="name" wx:for-item="att">
+                    <image wx:if="{{att.type === 'image'}}" class="comment-image" src="{{att.content}}" mode="widthFix" lazy-load />
+                    <view wx:elif="{{att.type === 'markdown'}}" class="comment-md-block">
+                      <text class="comment-md-name">📄 {{att.name}}</text>
+                      <scroll-view class="comment-md-scroll" scroll-y>
+                        <text class="comment-md-content selectable">{{att.content}}</text>
+                      </scroll-view>
+                    </view>
+                  </view>
+                </view>
+                <button class="reply-btn" data-link-id="{{item.id}}" data-parent-id="{{comment.id}}" bindtap="openReplyInput">回复</button>
+              </view>
+              <!-- Nested replies -->
+              <view wx:if="{{comment.replies.length}}" class="comment-replies">
+                <view wx:for="{{comment.replies}}" wx:key="id" wx:for-item="reply" class="comment-body reply-body">
+                  <text class="comment-meta">匿名 · {{reply.relativeTime}}</text>
+                  <text class="comment-content selectable">{{reply.content}}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+
+          <!-- New comment input -->
+          <view class="comment-form">
+            <textarea class="comment-textarea" placeholder="写评论…" data-link-id="{{item.id}}" data-parent-id="" value="{{commentInputs[item.id]}}" bindinput="onCommentInput" auto-height />
+            <view class="comment-toolbar">
+              <button class="attach-btn" data-link-id="{{item.id}}" bindtap="pickCommentImage">🖼 图片</button>
+              <button class="attach-btn" data-link-id="{{item.id}}" bindtap="pickCommentMd">📄 MD</button>
+              <button class="primary-btn comment-submit" data-link-id="{{item.id}}" bindtap="submitComment">发送</button>
+            </view>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <text wx:if="{{!visibleLinks.length && !loading}}" class="empty-text">
+    {{selectedTag ? '没有带有该标签的链接。' : '还没有链接，来分享第一篇吧。'}}
+  </text>
+</view>
+
+<!-- Edit modal -->
+<view class="modal-overlay {{editModal.visible ? '' : 'hidden'}}" bindtap="closeEditModal">
+  <view class="modal" catchtap="">
+    <text class="modal-title">编辑标签与推荐语</text>
+    <view class="modal-field">
+      <text class="modal-label">标签（逗号分隔）</text>
+      <input class="modal-input" value="{{editModal.tags}}" bindinput="onEditTagsInput" placeholder="标签1, 标签2" />
+    </view>
+    <view class="modal-field">
+      <text class="modal-label">推荐语</text>
+      <textarea class="modal-textarea" value="{{editModal.note}}" bindinput="onEditNoteInput" placeholder="为什么推荐这篇？" maxlength="280" auto-height />
+    </view>
+    <view class="modal-actions">
+      <button class="primary-btn modal-save-btn" bindtap="saveEdit">保存</button>
+      <button class="secondary-btn modal-cancel-btn" bindtap="closeEditModal">取消</button>
+    </view>
+  </view>
+</view>

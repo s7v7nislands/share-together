@@ -1,0 +1,33 @@
+/* app.wxss - Global styles */
+page {
+  background-color: #f7f5f0;
+  color: #24211c;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+.primary-btn {
+  background: #165a4c;
+  color: #fff;
+  border-radius: 8rpx;
+  font-weight: 700;
+  font-size: 28rpx;
+  line-height: 80rpx;
+  text-align: center;
+  border: none;
+}
+
+.secondary-btn {
+  background: #fff;
+  color: #24211c;
+  border-radius: 8rpx;
+  border: 1rpx solid #d9d2c5;
+  font-size: 28rpx;
+  line-height: 72rpx;
+  text-align: center;
+}
+
+.notice-text {
+  color: #8c4f2b;
+  font-size: 26rpx;
+  min-height: 40rpx;
+}

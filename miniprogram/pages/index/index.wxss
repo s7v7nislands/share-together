@@ -1,0 +1,74 @@
+/* pages/index/index.wxss */
+.page {
+  padding: 40rpx 32rpx;
+}
+
+.hero {
+  padding: 60rpx 0 50rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.brand {
+  font-weight: 800;
+  font-size: 32rpx;
+  color: #165a4c;
+}
+
+.hero-title {
+  font-size: 56rpx;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #24211c;
+}
+
+.hero-desc {
+  font-size: 30rpx;
+  color: #615b50;
+  line-height: 1.6;
+}
+
+.create-btn {
+  margin-top: 12rpx;
+  width: 280rpx;
+  height: 88rpx;
+  font-size: 32rpx;
+  border-radius: 12rpx;
+}
+
+.join-section {
+  border-top: 1rpx solid #e8e2d9;
+  padding-top: 40rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.join-label {
+  font-size: 26rpx;
+  color: #615b50;
+}
+
+.join-row {
+  display: flex;
+  gap: 12rpx;
+}
+
+.join-input {
+  flex: 1;
+  border: 1rpx solid #d9d2c5;
+  border-radius: 8rpx;
+  padding: 0 20rpx;
+  height: 72rpx;
+  background: #fff;
+  font-size: 26rpx;
+  color: #24211c;
+}
+
+.join-btn {
+  width: 140rpx;
+  height: 72rpx;
+  font-size: 28rpx;
+  border-radius: 8rpx;
+}

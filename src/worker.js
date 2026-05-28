@@ -30,6 +30,7 @@ export default {
 };
 
 async function handleApi(request, env, url) {
+  // POST /api/rooms — create room
   if (request.method === "POST" && url.pathname === "/api/rooms") {
     await rateLimit(env, `ip:${clientIp(request)}:create-room`, 10, 60);
     const now = new Date().toISOString();
@@ -47,6 +48,7 @@ async function handleApi(request, env, url) {
     return json({ slug: room.slug, admin_key: room.adminKey });
   }
 
+  // GET /api/rooms/:slug — verify room
   const roomMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (request.method === "GET" && roomMatch) {
     const room = await findRoom(env, roomMatch[1]);
@@ -54,6 +56,7 @@ async function handleApi(request, env, url) {
     return json({ slug: room.slug });
   }
 
+  // GET /api/rooms/:slug/links — list links
   const linksMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links$/);
   if (request.method === "GET" && linksMatch) {
     const room = await findRoom(env, linksMatch[1]);
@@ -71,9 +74,23 @@ async function handleApi(request, env, url) {
        LIMIT 100`
     ).bind(voterId || "", room.id).all();
 
-    return json({ links: rows.results.map(serializeLink) });
+    // Attach comment counts
+    const linkIds = rows.results.map((r) => r.id);
+    const commentCounts = {};
+    if (linkIds.length > 0) {
+      const placeholders = linkIds.map(() => "?").join(",");
+      const counts = await env.DB.prepare(
+        `SELECT link_id, COUNT(*) AS cnt FROM comments WHERE link_id IN (${placeholders}) AND deleted_at IS NULL GROUP BY link_id`
+      ).bind(...linkIds).all();
+      for (const row of counts.results) {
+        commentCounts[row.link_id] = row.cnt;
+      }
+    }
+
+    return json({ links: rows.results.map((l) => serializeLink(l, commentCounts[l.id] || 0)) });
   }
 
+  // POST /api/rooms/:slug/links — submit link
   if (request.method === "POST" && linksMatch) {
     const room = await findRoom(env, linksMatch[1]);
     if (!room) return json({ error: "Room not found" }, 404);
@@ -96,7 +113,7 @@ async function handleApi(request, env, url) {
       "SELECT * FROM links WHERE room_id = ? AND canonical_url = ? AND deleted_at IS NULL"
     ).bind(room.id, canonicalUrl).first();
     if (existing) {
-      return json({ link: serializeLink(existing), duplicate: true });
+      return json({ link: serializeLink(existing, 0), duplicate: true });
     }
 
     const metadata = await fetchMetadata(canonicalUrl);
@@ -134,9 +151,68 @@ async function handleApi(request, env, url) {
     ).run();
     await touchRoom(env, room.id);
 
-    return json({ link: serializeLink({ ...link, upvote_count: 0, created_at: now, viewer_vote_id: null }), duplicate: false }, 201);
+    return json({ link: serializeLink({ ...link, upvote_count: 0, created_at: now, viewer_vote_id: null }, 0), duplicate: false }, 201);
   }
 
+  // PATCH /api/rooms/:slug/links/:id — update tags and/or recommendation_note
+  const linkMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links\/([^/]+)$/);
+  if (request.method === "PATCH" && linkMatch) {
+    const room = await findRoom(env, linkMatch[1]);
+    if (!room) return json({ error: "Room not found" }, 404);
+
+    const link = await env.DB.prepare(
+      "SELECT * FROM links WHERE id = ? AND room_id = ? AND deleted_at IS NULL"
+    ).bind(linkMatch[2], room.id).first();
+    if (!link) return json({ error: "Link not found" }, 404);
+
+    const body = await readJson(request);
+    const clientId = sanitizeClientId(body.client_id);
+    if (!clientId) return json({ error: "Missing client_id" }, 400);
+
+    await rateLimit(env, `client:${clientId}:patch`, 10, 60);
+
+    const updates = {};
+    if (body.tags !== undefined) {
+      updates.tags = JSON.stringify(normalizeTags(body.tags));
+    }
+    if (body.recommendation_note !== undefined) {
+      updates.recommendation_note = normalizeRecommendationNote(body.recommendation_note);
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return json({ error: "Nothing to update" }, 400);
+    }
+
+    const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(", ");
+    const values = Object.values(updates);
+    await env.DB.prepare(
+      `UPDATE links SET ${setClauses} WHERE id = ?`
+    ).bind(...values, link.id).run();
+
+    const updated = await env.DB.prepare("SELECT * FROM links WHERE id = ?").bind(link.id).first();
+    const commentCount = await env.DB.prepare(
+      "SELECT COUNT(*) AS cnt FROM comments WHERE link_id = ? AND deleted_at IS NULL"
+    ).bind(link.id).first();
+    return json({ link: serializeLink(updated, commentCount?.cnt || 0) });
+  }
+
+  // DELETE /api/rooms/:slug/links/:id — admin soft-delete link
+  if (request.method === "DELETE" && linkMatch) {
+    const room = await findRoom(env, linkMatch[1]);
+    if (!room) return json({ error: "Room not found" }, 404);
+
+    const adminKey = request.headers.get("x-admin-key") || "";
+    if (!adminKey || await sha256(adminKey) !== room.admin_key_hash) {
+      return json({ error: "Forbidden" }, 403);
+    }
+
+    await env.DB.prepare(
+      "UPDATE links SET deleted_at = ? WHERE id = ? AND room_id = ?"
+    ).bind(new Date().toISOString(), linkMatch[2], room.id).run();
+    return json({ ok: true });
+  }
+
+  // Vote routes: POST/DELETE /api/rooms/:slug/links/:id/vote
   const voteMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links\/([^/]+)\/vote$/);
   if (voteMatch && (request.method === "POST" || request.method === "DELETE")) {
     const room = await findRoom(env, voteMatch[1]);
@@ -175,12 +251,97 @@ async function handleApi(request, env, url) {
        LEFT JOIN votes ON votes.link_id = links.id AND votes.voter_id = ?
        WHERE links.id = ?`
     ).bind(clientId, link.id).first();
-    return json({ link: serializeLink(updated) });
+    const commentCount = await env.DB.prepare(
+      "SELECT COUNT(*) AS cnt FROM comments WHERE link_id = ? AND deleted_at IS NULL"
+    ).bind(link.id).first();
+    return json({ link: serializeLink(updated, commentCount?.cnt || 0) });
   }
 
-  const deleteMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links\/([^/]+)$/);
-  if (request.method === "DELETE" && deleteMatch) {
-    const room = await findRoom(env, deleteMatch[1]);
+  // GET /api/rooms/:slug/links/:id/comments — list comments for a link (tree)
+  const commentsMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links\/([^/]+)\/comments$/);
+  if (request.method === "GET" && commentsMatch) {
+    const room = await findRoom(env, commentsMatch[1]);
+    if (!room) return json({ error: "Room not found" }, 404);
+
+    const link = await env.DB.prepare(
+      "SELECT id FROM links WHERE id = ? AND room_id = ? AND deleted_at IS NULL"
+    ).bind(commentsMatch[2], room.id).first();
+    if (!link) return json({ error: "Link not found" }, 404);
+
+    const rows = await env.DB.prepare(
+      "SELECT * FROM comments WHERE link_id = ? AND deleted_at IS NULL ORDER BY created_at ASC"
+    ).bind(link.id).all();
+
+    return json({ comments: buildCommentTree(rows.results.map(serializeComment)) });
+  }
+
+  // POST /api/rooms/:slug/links/:id/comments — add comment
+  if (request.method === "POST" && commentsMatch) {
+    const room = await findRoom(env, commentsMatch[1]);
+    if (!room) return json({ error: "Room not found" }, 404);
+
+    const link = await env.DB.prepare(
+      "SELECT id FROM links WHERE id = ? AND room_id = ? AND deleted_at IS NULL"
+    ).bind(commentsMatch[2], room.id).first();
+    if (!link) return json({ error: "Link not found" }, 404);
+
+    const body = await readJson(request);
+    const clientId = sanitizeClientId(body.client_id);
+    if (!clientId) return json({ error: "Missing client_id" }, 400);
+
+    await rateLimit(env, `client:${clientId}:comment`, 10, 60);
+    await rateLimit(env, `ip:${clientIp(request)}:comment`, 20, 60);
+
+    const content = normalizeCommentContent(body.content);
+    if (!content) return json({ error: "Comment content is required" }, 400);
+
+    // Validate parent_id if provided
+    let parentId = null;
+    if (body.parent_id) {
+      const parent = await env.DB.prepare(
+        "SELECT id FROM comments WHERE id = ? AND link_id = ? AND deleted_at IS NULL"
+      ).bind(body.parent_id, link.id).first();
+      if (!parent) return json({ error: "Parent comment not found" }, 404);
+      parentId = parent.id;
+    }
+
+    // Validate and sanitize attachments
+    const attachments = normalizeAttachments(body.attachments);
+
+    const now = new Date().toISOString();
+    const comment = {
+      id: crypto.randomUUID(),
+      room_id: room.id,
+      link_id: link.id,
+      parent_id: parentId,
+      author_id: clientId,
+      content,
+      attachments: JSON.stringify(attachments),
+      created_at: now
+    };
+
+    await env.DB.prepare(
+      `INSERT INTO comments (id, room_id, link_id, parent_id, author_id, content, attachments, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      comment.id,
+      comment.room_id,
+      comment.link_id,
+      comment.parent_id,
+      comment.author_id,
+      comment.content,
+      comment.attachments,
+      comment.created_at
+    ).run();
+    await touchRoom(env, room.id);
+
+    return json({ comment: serializeComment(comment) }, 201);
+  }
+
+  // DELETE /api/rooms/:slug/links/:id/comments/:cid — admin soft-delete comment
+  const deleteCommentMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links\/([^/]+)\/comments\/([^/]+)$/);
+  if (request.method === "DELETE" && deleteCommentMatch) {
+    const room = await findRoom(env, deleteCommentMatch[1]);
     if (!room) return json({ error: "Room not found" }, 404);
 
     const adminKey = request.headers.get("x-admin-key") || "";
@@ -189,13 +350,15 @@ async function handleApi(request, env, url) {
     }
 
     await env.DB.prepare(
-      "UPDATE links SET deleted_at = ? WHERE id = ? AND room_id = ?"
-    ).bind(new Date().toISOString(), deleteMatch[2], room.id).run();
+      "UPDATE comments SET deleted_at = ? WHERE id = ? AND room_id = ?"
+    ).bind(new Date().toISOString(), deleteCommentMatch[3], room.id).run();
     return json({ ok: true });
   }
 
   return json({ error: "Not found" }, 404);
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function findRoom(env, slug) {
   return env.DB.prepare("SELECT * FROM rooms WHERE slug = ?").bind(slug).first();
@@ -226,7 +389,7 @@ async function readJson(request) {
   }
 }
 
-function serializeLink(link) {
+function serializeLink(link, commentCount = 0) {
   return {
     id: link.id,
     original_url: link.original_url,
@@ -240,8 +403,39 @@ function serializeLink(link) {
     recommendation_note: link.recommendation_note || null,
     upvote_count: link.upvote_count || 0,
     created_at: link.created_at,
-    viewer_has_upvoted: Boolean(link.viewer_vote_id)
+    viewer_has_upvoted: Boolean(link.viewer_vote_id),
+    comment_count: commentCount
   };
+}
+
+function serializeComment(comment) {
+  return {
+    id: comment.id,
+    link_id: comment.link_id,
+    parent_id: comment.parent_id || null,
+    author_id: comment.author_id,
+    content: comment.content,
+    attachments: parseAttachments(comment.attachments),
+    created_at: comment.created_at,
+    replies: []
+  };
+}
+
+/** Build a nested tree from a flat list (sorted by created_at ASC) */
+function buildCommentTree(comments) {
+  const map = new Map();
+  const roots = [];
+  for (const c of comments) {
+    map.set(c.id, c);
+  }
+  for (const c of comments) {
+    if (c.parent_id && map.has(c.parent_id)) {
+      map.get(c.parent_id).replies.push(c);
+    } else {
+      roots.push(c);
+    }
+  }
+  return roots;
 }
 
 export function normalizeTags(value) {
@@ -279,6 +473,47 @@ export function normalizeRecommendationNote(value) {
   if (typeof value !== "string") return null;
   const note = value.trim().replace(/\s+/g, " ").slice(0, 280);
   return note || null;
+}
+
+function normalizeCommentContent(value) {
+  if (typeof value !== "string") return null;
+  const content = value.trim().slice(0, 2000);
+  return content || null;
+}
+
+/**
+ * Normalize attachments array.
+ * Each attachment: { type: 'image' | 'markdown', name: string, content: string }
+ * - image: content is base64 data URL (≤ 300KB after base64)
+ * - markdown: content is raw markdown text (≤ 50KB)
+ * Max 4 attachments per comment.
+ */
+function normalizeAttachments(value) {
+  if (!Array.isArray(value)) return [];
+  const result = [];
+  for (const item of value) {
+    if (result.length >= 4) break;
+    if (!item || typeof item !== "object") continue;
+    const type = item.type === "markdown" ? "markdown" : "image";
+    const name = typeof item.name === "string" ? item.name.slice(0, 128) : "";
+    const content = typeof item.content === "string" ? item.content : "";
+    if (!content) continue;
+    // Size guard
+    if (type === "image" && content.length > 400000) continue;   // ~300KB base64
+    if (type === "markdown" && content.length > 51200) continue; // 50KB
+    result.push({ type, name, content });
+  }
+  return result;
+}
+
+function parseAttachments(value) {
+  if (!value) return [];
+  try {
+    const arr = JSON.parse(value);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
 }
 
 function sanitizeClientId(value) {

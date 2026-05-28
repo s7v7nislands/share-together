@@ -15,7 +15,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -68,7 +69,11 @@ input {
 .tag,
 .tag-filter,
 .vote,
-.delete {
+.delete,
+.comment-toggle,
+.edit-btn,
+.reply-btn,
+.attach-btn {
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
@@ -84,6 +89,11 @@ input {
 
 .primary:hover {
   background: #0f4439;
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .primary.large {
@@ -227,6 +237,10 @@ input {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.link-content {
+  min-width: 0;
+}
+
 .link-title {
   color: #24211c;
   display: inline-block;
@@ -271,7 +285,9 @@ input {
 .actions {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  margin-top: 10px;
 }
 
 .vote {
@@ -287,6 +303,33 @@ input {
   color: #fff;
 }
 
+.comment-toggle {
+  background: #f6f3ee;
+  border-color: #d9d2c5;
+  color: #4d473e;
+  font-size: 0.88rem;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.comment-toggle.active {
+  background: #e9e0d0;
+  border-color: #bfb8ae;
+}
+
+.edit-btn {
+  background: transparent;
+  border-color: #d9d2c5;
+  color: #615b50;
+  font-size: 0.84rem;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+.edit-btn:hover {
+  background: #f0ebe2;
+}
+
 .delete {
   background: transparent;
   color: #9b3f2f;
@@ -299,6 +342,272 @@ input {
   margin-top: 24px;
 }
 
+/* ── Comment section ─────────────────────────────────────────────────────── */
+.comment-section {
+  border-top: 1px solid #e8e2d9;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.comment-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.comment-wrapper {
+  display: grid;
+  gap: 4px;
+}
+
+.comment-wrapper.depth-1,
+.comment-wrapper.depth-2,
+.comment-wrapper.depth-3 {
+  margin-left: 20px;
+  border-left: 2px solid #e8e2d9;
+  padding-left: 10px;
+}
+
+.comment-body {
+  background: #f9f7f3;
+  border: 1px solid #e8e2d9;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.comment-meta {
+  color: #8c8478;
+  font-size: 0.78rem;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.comment-content {
+  color: #2e2a24;
+  font-size: 0.93rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.comment-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.comment-image {
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: #eee7da;
+}
+
+.comment-md-block {
+  background: #fff;
+  border: 1px solid #d9d2c5;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.comment-md-block summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: #615b50;
+  padding: 6px 10px;
+  user-select: none;
+}
+
+.comment-md-block summary:hover {
+  background: #f6f3ee;
+}
+
+.comment-md-content {
+  background: #fafaf7;
+  border-top: 1px solid #e8e2d9;
+  color: #2e2a24;
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reply-btn {
+  background: transparent;
+  border-color: transparent;
+  color: #8c4f2b;
+  font-size: 0.8rem;
+  min-height: 26px;
+  padding: 0 6px;
+  margin-top: 4px;
+}
+
+.reply-btn:hover {
+  background: #f6ede5;
+}
+
+.comment-replies {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.reply-form-container {
+  margin-top: 8px;
+}
+
+/* ── Comment form ─────────────────────────────────────────────────────────── */
+.comment-form {
+  display: grid;
+  gap: 6px;
+}
+
+.comment-textarea {
+  border: 1px solid #d9d2c5;
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 60px;
+  background: #fff;
+  width: 100%;
+  line-height: 1.5;
+  font-size: 0.93rem;
+}
+
+.comment-textarea:focus {
+  outline: none;
+  border-color: #165a4c;
+}
+
+.comment-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.attach-btn {
+  background: #f6f1e8;
+  border-color: #ded5c6;
+  color: #5a4f43;
+  font-size: 0.82rem;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.attach-btn:hover {
+  background: #eae4d8;
+}
+
+.comment-submit {
+  min-height: 34px;
+  padding: 0 16px;
+  font-size: 0.9rem;
+}
+
+.attach-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.attach-chip {
+  background: #edf4f0;
+  border: 1px solid #b8d5c6;
+  border-radius: 20px;
+  color: #165a4c;
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.attach-chip-remove {
+  background: none;
+  border: none;
+  color: #165a4c;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  min-height: unset;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* ── Edit modal ────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+  padding: 28px 28px 24px;
+  width: min(480px, 100%);
+  display: grid;
+  gap: 16px;
+}
+
+.modal-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin: 0;
+  color: #24211c;
+}
+
+.modal-label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: #4d473e;
+  font-weight: 600;
+}
+
+.modal-input,
+.modal-textarea {
+  border: 1px solid #d9d2c5;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #fff;
+  width: 100%;
+  font-size: 0.95rem;
+}
+
+.modal-input:focus,
+.modal-textarea:focus {
+  outline: none;
+  border-color: #165a4c;
+}
+
+.modal-textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .app {
     width: min(100% - 24px, 980px);
@@ -321,5 +630,9 @@ input {
 
   .link-card {
     grid-template-columns: 1fr;
+  }
+
+  .modal {
+    padding: 20px;
   }
 }

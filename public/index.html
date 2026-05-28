@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,13 +10,13 @@
     <main class="app">
       <header class="topbar">
         <a class="brand" href="/">Share Together</a>
-        <button id="create-room" class="primary">Create room</button>
+        <button id="create-room" class="primary">创建房间</button>
       </header>
 
       <section id="home" class="home">
-        <h1>Shared article rooms for small groups</h1>
-        <p>Create a private-by-link room, paste article URLs, and let the group upvote what is worth reading.</p>
-        <button id="home-create-room" class="primary large">Create room</button>
+        <h1>小圈子共享链接间</h1>
+        <p>创建一个仅凭链接访问的私密房间，粘贴文章 URL，让大家投票出最值得读的内容。</p>
+        <button id="home-create-room" class="primary large">创建房间</button>
       </section>
 
       <section id="room" class="room hidden">
@@ -25,27 +25,45 @@
             <p class="eyebrow">Room</p>
             <h1 id="room-title"></h1>
           </div>
-          <button id="copy-room" class="secondary">Copy link</button>
+          <button id="copy-room" class="secondary">复制链接</button>
         </div>
 
         <form id="submit-link" class="submit-form">
           <input id="url-input" name="url" type="url" placeholder="https://example.com/article" required>
-          <input id="tags-input" name="tags" type="text" placeholder="Tags, comma separated">
-          <input id="recommendation-input" name="recommendation_note" type="text" maxlength="280" placeholder="Why do you recommend it?">
-          <button class="primary" type="submit">Share URL</button>
+          <input id="tags-input" name="tags" type="text" placeholder="标签，逗号分隔">
+          <input id="recommendation-input" name="recommendation_note" type="text" maxlength="280" placeholder="推荐理由（可选）">
+          <button class="primary" type="submit">分享</button>
         </form>
         <p id="notice" class="notice" role="status"></p>
 
-        <div class="tabs" role="tablist" aria-label="Sort links">
-          <button class="tab active" data-sort="newest" type="button">Newest</button>
-          <button class="tab" data-sort="hot" type="button">Hot</button>
+        <div class="tabs" role="tablist" aria-label="排序">
+          <button class="tab active" data-sort="newest" type="button">最新</button>
+          <button class="tab" data-sort="hot" type="button">热门</button>
         </div>
-        <div id="tag-filters" class="tag-filters hidden" aria-label="Filter by tag"></div>
+        <div id="tag-filters" class="tag-filters hidden" aria-label="按标签筛选"></div>
 
         <div id="links" class="links"></div>
-        <p id="empty" class="empty hidden">No links yet. Share the first article.</p>
+        <p id="empty" class="empty hidden">还没有链接，来分享第一篇吧。</p>
       </section>
     </main>
+
+    <!-- Edit tags/note modal -->
+    <div id="edit-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-label="编辑标签与推荐语">
+      <div class="modal">
+        <h2 class="modal-title">编辑标签与推荐语</h2>
+        <label class="modal-label">标签（逗号分隔）
+          <input id="edit-tags-input" type="text" class="modal-input" placeholder="标签1, 标签2">
+        </label>
+        <label class="modal-label">推荐语
+          <textarea id="edit-note-input" class="modal-textarea" maxlength="280" placeholder="为什么推荐这篇？"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button id="edit-save" class="primary">保存</button>
+          <button id="edit-cancel" class="secondary">取消</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/app.js"></script>
   </body>
 </html>
