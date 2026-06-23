@@ -32,26 +32,55 @@ export default {
 async function handleApi(request, env, url) {
   if (request.method === "POST" && url.pathname === "/api/rooms") {
     await rateLimit(env, `ip:${clientIp(request)}:create-room`, 10, 60);
+    const body = await readJson(request).catch(() => ({}));
+    const name = normalizeRoomName(body.name);
     const now = new Date().toISOString();
     const room = {
       id: crypto.randomUUID(),
       slug: `room-${randomToken(8)}`,
-      adminKey: randomToken(32)
+      adminKey: randomToken(32),
+      name
     };
     const adminHash = await sha256(room.adminKey);
 
     await env.DB.prepare(
-      "INSERT INTO rooms (id, slug, admin_key_hash, created_at, last_active_at) VALUES (?, ?, ?, ?, ?)"
-    ).bind(room.id, room.slug, adminHash, now, now).run();
+      "INSERT INTO rooms (id, slug, admin_key_hash, name, created_at, last_active_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(room.id, room.slug, adminHash, room.name, now, now).run();
 
-    return json({ slug: room.slug, admin_key: room.adminKey });
+    return json({ slug: room.slug, name: room.name, admin_key: room.adminKey });
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/rooms") {
+    const rows = await env.DB.prepare(
+      "SELECT slug, name, created_at, last_active_at FROM rooms ORDER BY created_at DESC LIMIT 50"
+    ).all();
+    return json({ rooms: rows.results });
   }
 
   const roomMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (request.method === "GET" && roomMatch) {
     const room = await findRoom(env, roomMatch[1]);
     if (!room) return json({ error: "Room not found" }, 404);
-    return json({ slug: room.slug });
+    return json({ slug: room.slug, name: room.name });
+  }
+
+  if (request.method === "PATCH" && roomMatch) {
+    const room = await findRoom(env, roomMatch[1]);
+    if (!room) return json({ error: "Room not found" }, 404);
+
+    const adminKey = request.headers.get("x-admin-key") || "";
+    if (!adminKey || await sha256(adminKey) !== room.admin_key_hash) {
+      return json({ error: "Forbidden" }, 403);
+    }
+
+    const body = await readJson(request);
+    const name = normalizeRoomName(body.name);
+
+    await env.DB.prepare(
+      "UPDATE rooms SET name = ? WHERE id = ?"
+    ).bind(name, room.id).run();
+
+    return json({ slug: room.slug, name });
   }
 
   const linksMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links$/);
@@ -341,6 +370,12 @@ function serializeLink(link) {
     created_at: link.created_at,
     viewer_has_upvoted: Boolean(link.viewer_vote_id)
   };
+}
+
+export function normalizeRoomName(value) {
+  if (typeof value !== "string") return null;
+  const name = value.trim().replace(/\s+/g, " ").slice(0, 64);
+  return name || null;
 }
 
 export function normalizeTags(value) {

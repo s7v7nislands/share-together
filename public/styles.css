@@ -160,6 +160,95 @@ h1, h2, h3, h4 {
   max-width: 480px;
 }
 
+/* ===== CREATE ROOM ROW ===== */
+.create-room-row {
+  display: flex;
+  gap: 10px;
+  max-width: 520px;
+  margin-bottom: 48px;
+}
+
+.create-room-row input {
+  flex: 1;
+  min-width: 0;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0 20px;
+  min-height: 52px;
+  background: var(--paper-card);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+
+.create-room-row input::placeholder {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+.create-room-row input:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(13, 68, 54, 0.08);
+}
+
+.create-room-row .primary {
+  white-space: nowrap;
+}
+
+/* ===== ROOM LIST ===== */
+.room-list {
+  display: grid;
+  gap: 6px;
+  max-width: 520px;
+}
+
+.room-list::before {
+  content: 'Recent rooms';
+  display: block;
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  color: var(--amber);
+  margin-bottom: 8px;
+}
+
+.room-list-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: background 0.2s var(--ease-out);
+}
+
+.room-list-item:hover {
+  background: var(--paper-surface);
+}
+
+.room-list-name {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.room-list-item:hover .room-list-name {
+  color: var(--green);
+}
+
+.room-list-meta {
+  font-size: 0.8rem;
+  color: var(--ink-light);
+  white-space: nowrap;
+}
+
 /* ===== BUTTONS ===== */
 .primary,
 .secondary,
@@ -242,6 +331,49 @@ h1, h2, h3, h4 {
   font-size: clamp(2rem, 4vw, 3.25rem);
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.room-head h1.editable {
+  cursor: pointer;
+  border-bottom: 2px dashed var(--border);
+  border-radius: 2px;
+  padding-bottom: 2px;
+  transition: border-color 0.2s var(--ease-out), color 0.2s var(--ease-out);
+}
+
+.room-head h1.editable:hover {
+  border-bottom-color: var(--amber);
+  color: var(--green);
+}
+
+.room-head h1.editable::after {
+  content: '✎';
+  font-size: 0.5em;
+  margin-left: 12px;
+  opacity: 0;
+  transition: opacity 0.2s var(--ease-out);
+  vertical-align: middle;
+  color: var(--amber);
+}
+
+.room-head h1.editable:hover::after {
+  opacity: 1;
+}
+
+.room-title-input {
+  font-family: var(--font-display);
+  font-size: inherit;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  background: var(--paper-card);
+  border: 1.5px solid var(--green);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  width: 100%;
+  max-width: 480px;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(13, 68, 54, 0.08);
 }
 
 .eyebrow {
@@ -853,6 +985,11 @@ h1, h2, h3, h4 {
   .home p {
     font-size: 1rem;
     margin: 18px 0 24px;
+  }
+
+  .create-room-row {
+    flex-direction: column;
+    max-width: 100%;
   }
 
   .room-head {

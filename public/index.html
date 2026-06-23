@@ -18,7 +18,11 @@
       <section id="home" class="home">
         <h1>Shared article rooms for small groups</h1>
         <p>Create a private-by-link room, paste article URLs, and let the group upvote what is worth reading.</p>
-        <button id="home-create-room" class="primary large">Create room</button>
+        <div class="create-room-row">
+          <input id="room-name-input" type="text" placeholder="Room name (optional)" maxlength="64">
+          <button id="home-create-room" class="primary large">Create room</button>
+        </div>
+        <div id="room-list" class="room-list hidden"></div>
       </section>
 
       <section id="room" class="room hidden">
