@@ -98,11 +98,17 @@ async function submitLink(event) {
 async function loadLinks() {
   try {
     const response = await api(`/api/rooms/${state.roomSlug}/links?sort=${state.sort}&client_id=${encodeURIComponent(state.clientId)}`);
+    const prev = linksFingerprint(state.links);
+    const next = linksFingerprint(response.links);
     state.links = response.links;
-    renderLinks();
+    if (prev !== next) renderLinks();
   } catch (error) {
     setNotice(error.message);
   }
+}
+
+function linksFingerprint(links) {
+  return links.map((l) => `${l.id}:${l.upvote_count}:${l.viewer_has_upvoted ? 1 : 0}:${l.reply_count}`).join(",");
 }
 
 async function toggleVote(linkId) {
@@ -118,7 +124,7 @@ async function toggleVote(linkId) {
 
   const voteBtn = document.querySelector(`.link-card[data-link-id="${linkId}"] .vote`);
   if (voteBtn) {
-    voteBtn.textContent = `▲ ${response.link.upvote_count}`;
+    voteBtn.textContent = `${response.link.upvote_count}`;
     voteBtn.classList.toggle("active", response.link.viewer_has_upvoted);
   }
 }
@@ -215,14 +221,14 @@ function renderLink(link, index) {
   const vote = document.createElement("button");
   vote.className = `vote${link.viewer_has_upvoted ? " active" : ""}`;
   vote.type = "button";
-  vote.textContent = `▲ ${link.upvote_count}`;
+  vote.textContent = `${link.upvote_count}`;
   vote.addEventListener("click", () => toggleVote(link.id));
   actions.append(vote);
 
   const replyBtn = document.createElement("button");
   replyBtn.className = "reply-toggle";
   replyBtn.type = "button";
-  replyBtn.textContent = `↩ ${link.reply_count || 0}`;
+  replyBtn.textContent = replyLabel(link.reply_count || 0);
   replyBtn.addEventListener("click", () => toggleReplies(link, card));
   actions.append(replyBtn);
 
@@ -416,7 +422,7 @@ async function toggleReplies(link, card) {
       const data = await api(`/api/rooms/${state.roomSlug}/links/${link.id}/replies`);
       state.replies[link.id] = data.replies;
       link.reply_count = data.replies.length;
-      toggleBtn.textContent = `↩ ${link.reply_count}`;
+      toggleBtn.textContent = replyLabel(link.reply_count);
     } catch (error) {
       section.replaceChildren(renderReplyError(error.message));
       return;
@@ -658,7 +664,7 @@ function updateReplyToggle(link) {
     ?.closest(".link-card")
     ?.querySelector(".reply-toggle");
   if (toggleBtn) {
-    toggleBtn.textContent = `↩ ${link.reply_count || 0}`;
+    toggleBtn.textContent = replyLabel(link.reply_count || 0);
   }
 }
 
@@ -696,6 +702,10 @@ async function deleteReply(reply, wrapper) {
   } catch (error) {
     setNotice(error.message);
   }
+}
+
+function replyLabel(count) {
+  return `↩ ${count} comment${count === 1 ? "" : "s"}`;
 }
 
 function relativeTime(value) {
