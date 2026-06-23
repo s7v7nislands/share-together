@@ -4,7 +4,9 @@ const state = {
   selectedTag: null,
   links: [],
   clientId: getOrCreate("share_together_client_id", () => crypto.randomUUID()),
-  adminKey: null
+  adminKey: null,
+  replies: {},
+  expandedReplies: new Set()
 };
 
 const els = {
@@ -44,9 +46,22 @@ window.addEventListener("focus", () => {
 if (state.roomSlug) {
   showRoom(state.roomSlug);
   loadLinks();
-  setInterval(loadLinks, 15000);
+  schedulePoll();
 } else {
   showHome();
+}
+
+function isUserTyping() {
+  const el = document.activeElement;
+  return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+}
+
+function schedulePoll() {
+  setTimeout(() => {
+    if (!state.roomSlug) return;
+    if (!isUserTyping()) loadLinks();
+    schedulePoll();
+  }, 15000);
 }
 
 async function createRoom() {
@@ -90,13 +105,22 @@ async function loadLinks() {
   }
 }
 
-async function toggleVote(link) {
-  const method = link.viewer_has_upvoted ? "DELETE" : "POST";
+async function toggleVote(linkId) {
+  const current = state.links.find((l) => l.id === linkId);
+  if (!current) return;
+
+  const method = current.viewer_has_upvoted ? "DELETE" : "POST";
   const query = method === "DELETE" ? `?client_id=${encodeURIComponent(state.clientId)}` : "";
   const body = method === "POST" ? { client_id: state.clientId } : undefined;
-  const response = await api(`/api/rooms/${state.roomSlug}/links/${link.id}/vote${query}`, { method, body });
-  state.links = state.links.map((item) => item.id === link.id ? response.link : item);
-  renderLinks();
+  const response = await api(`/api/rooms/${state.roomSlug}/links/${linkId}/vote${query}`, { method, body });
+
+  state.links = state.links.map((item) => item.id === linkId ? response.link : item);
+
+  const voteBtn = document.querySelector(`.link-card[data-link-id="${linkId}"] .vote`);
+  if (voteBtn) {
+    voteBtn.textContent = `▲ ${response.link.upvote_count}`;
+    voteBtn.classList.toggle("active", response.link.viewer_has_upvoted);
+  }
 }
 
 async function deleteLink(link) {
@@ -116,12 +140,29 @@ function renderLinks() {
   els.empty.textContent = state.selectedTag
     ? `No links tagged "${state.selectedTag}" yet.`
     : "No links yet. Share the first article.";
+
+  const expandedIds = new Set(state.expandedReplies);
   els.links.replaceChildren(...visibleLinks.map((link, i) => renderLink(link, i)));
+
+  for (const linkId of expandedIds) {
+    restoreReplies(linkId);
+  }
+}
+
+function restoreReplies(linkId) {
+  const section = document.querySelector(`.replies-section[data-link-id="${linkId}"]`);
+  if (!section) return;
+  state.expandedReplies.add(linkId);
+  section.classList.remove("hidden");
+  if (state.replies[linkId]) {
+    renderReplySection({ id: linkId }, section);
+  }
 }
 
 function renderLink(link, index) {
   const card = document.createElement("article");
   card.className = `link-card${link.image_url ? "" : " no-image"}`;
+  card.dataset.linkId = link.id;
   card.style.setProperty("--index", index);
 
   const content = document.createElement("div");
@@ -175,8 +216,15 @@ function renderLink(link, index) {
   vote.className = `vote${link.viewer_has_upvoted ? " active" : ""}`;
   vote.type = "button";
   vote.textContent = `▲ ${link.upvote_count}`;
-  vote.addEventListener("click", () => toggleVote(link));
+  vote.addEventListener("click", () => toggleVote(link.id));
   actions.append(vote);
+
+  const replyBtn = document.createElement("button");
+  replyBtn.className = "reply-toggle";
+  replyBtn.type = "button";
+  replyBtn.textContent = `↩ ${link.reply_count || 0}`;
+  replyBtn.addEventListener("click", () => toggleReplies(link, card));
+  actions.append(replyBtn);
 
   if (state.adminKey) {
     const remove = document.createElement("button");
@@ -189,6 +237,11 @@ function renderLink(link, index) {
 
   content.append(actions);
   card.append(content);
+
+  const replySection = document.createElement("div");
+  replySection.className = "replies-section hidden";
+  replySection.dataset.linkId = link.id;
+  card.append(replySection);
 
   if (link.image_url) {
     const img = document.createElement("img");
@@ -340,6 +393,309 @@ function getOrCreate(key, create) {
 
 function adminKeyStorageKey(slug) {
   return `share_together_admin_key:${slug}`;
+}
+
+// --- Replies ---
+
+async function toggleReplies(link, card) {
+  const section = card.querySelector(".replies-section");
+  const toggleBtn = card.querySelector(".reply-toggle");
+
+  if (state.expandedReplies.has(link.id)) {
+    state.expandedReplies.delete(link.id);
+    section.classList.add("hidden");
+    return;
+  }
+
+  state.expandedReplies.add(link.id);
+  section.classList.remove("hidden");
+
+  if (!state.replies[link.id]) {
+    section.replaceChildren(renderLoading());
+    try {
+      const data = await api(`/api/rooms/${state.roomSlug}/links/${link.id}/replies`);
+      state.replies[link.id] = data.replies;
+      link.reply_count = data.replies.length;
+      toggleBtn.textContent = `↩ ${link.reply_count}`;
+    } catch (error) {
+      section.replaceChildren(renderReplyError(error.message));
+      return;
+    }
+  }
+
+  renderReplySection(link, section);
+}
+
+function renderLoading() {
+  const el = document.createElement("p");
+  el.className = "reply-loading";
+  el.textContent = "Loading replies…";
+  return el;
+}
+
+function renderReplyError(message) {
+  const el = document.createElement("p");
+  el.className = "reply-error";
+  el.textContent = message;
+  return el;
+}
+
+function renderReplySection(link, container) {
+  container.replaceChildren();
+
+  const replies = state.replies[link.id] || [];
+  const tree = buildReplyTree(replies);
+
+  if (tree.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "reply-empty";
+    empty.textContent = "No replies yet. Start the discussion.";
+    container.append(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "reply-thread";
+    renderReplyTree(tree, list, 0);
+    container.append(list);
+  }
+
+  renderReplyForm(link, null, container);
+}
+
+function buildReplyTree(replies) {
+  const map = new Map();
+  const roots = [];
+
+  for (const reply of replies) {
+    map.set(reply.id, { ...reply, children: [] });
+  }
+
+  for (const reply of map.values()) {
+    if (reply.parent_id && map.has(reply.parent_id)) {
+      map.get(reply.parent_id).children.push(reply);
+    } else {
+      roots.push(reply);
+    }
+  }
+
+  return roots;
+}
+
+function renderReplyTree(replies, container, depth) {
+  for (const reply of replies) {
+    renderSingleReply(reply, container, depth);
+  }
+}
+
+function renderSingleReply(reply, container, depth) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "reply";
+  wrapper.style.setProperty("--depth", Math.min(depth, 3));
+
+  const body = document.createElement("div");
+  body.className = "reply-body";
+
+  const meta = document.createElement("div");
+  meta.className = "reply-meta";
+
+  const author = document.createElement("span");
+  author.className = "reply-author";
+  author.textContent = reply.author_name;
+
+  const time = document.createElement("span");
+  time.className = "reply-time";
+  time.textContent = relativeTime(reply.created_at);
+
+  meta.append(author, time);
+  body.append(meta);
+
+  const text = document.createElement("p");
+  text.className = "reply-text";
+  text.textContent = reply.body;
+  body.append(text);
+
+  const replyBtn = document.createElement("button");
+  replyBtn.className = "reply-inline-btn";
+  replyBtn.type = "button";
+  replyBtn.textContent = "Reply";
+  replyBtn.addEventListener("click", () => {
+    const existingForm = wrapper.querySelector(".reply-form");
+    if (existingForm) {
+      existingForm.remove();
+      return;
+    }
+    renderReplyFormInline(reply, wrapper);
+  });
+  body.append(replyBtn);
+
+  if (state.adminKey) {
+    const delBtn = document.createElement("button");
+    delBtn.className = "reply-delete-btn";
+    delBtn.type = "button";
+    delBtn.textContent = "×";
+    delBtn.title = "Delete reply";
+    delBtn.addEventListener("click", () => deleteReply(reply, wrapper));
+    body.append(delBtn);
+  }
+
+  wrapper.append(body);
+
+  if (reply.children && reply.children.length > 0) {
+    const nested = document.createElement("div");
+    nested.className = "reply-children";
+    for (const child of reply.children) {
+      renderSingleReply(child, nested, depth + 1);
+    }
+    wrapper.append(nested);
+  }
+
+  container.append(wrapper);
+}
+
+function renderReplyForm(link, parentId, container) {
+  const form = document.createElement("form");
+  form.className = "reply-form";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.name = "author_name";
+  nameInput.placeholder = "Your name (optional)";
+  nameInput.maxLength = 32;
+
+  const bodyInput = document.createElement("input");
+  bodyInput.type = "text";
+  bodyInput.name = "body";
+  bodyInput.placeholder = parentId ? "Write a reply…" : "Write the first reply…";
+  bodyInput.required = true;
+  bodyInput.maxLength = 1000;
+
+  const submitBtn = document.createElement("button");
+  submitBtn.className = "primary";
+  submitBtn.type = "submit";
+  submitBtn.textContent = "Reply";
+
+  form.append(nameInput, bodyInput, submitBtn);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitReply(link, parentId, nameInput.value.trim(), bodyInput.value.trim(), form, container);
+  });
+
+  container.append(form);
+}
+
+function renderReplyFormInline(parentReply, wrapper) {
+  const form = document.createElement("form");
+  form.className = "reply-form reply-form-inline";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.name = "author_name";
+  nameInput.placeholder = "Your name (optional)";
+  nameInput.maxLength = 32;
+
+  const bodyInput = document.createElement("input");
+  bodyInput.type = "text";
+  bodyInput.name = "body";
+  bodyInput.placeholder = `Reply to ${parentReply.author_name}…`;
+  bodyInput.required = true;
+  bodyInput.maxLength = 1000;
+
+  const actions = document.createElement("div");
+  actions.className = "reply-form-actions";
+
+  const submitBtn = document.createElement("button");
+  submitBtn.className = "primary";
+  submitBtn.type = "submit";
+  submitBtn.textContent = "Post";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "secondary";
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", () => form.remove());
+
+  actions.append(submitBtn, cancelBtn);
+  form.append(nameInput, bodyInput, actions);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const parentLink = state.links.find((l) => l.id === parentReply.link_id);
+    if (!parentLink) return;
+    submitReply(parentLink, parentReply.id, nameInput.value.trim(), bodyInput.value.trim(), form, wrapper);
+  });
+
+  wrapper.append(form);
+  bodyInput.focus();
+}
+
+async function submitReply(link, parentId, authorName, body, form, container) {
+  if (!body) return;
+
+  try {
+    const payload = { client_id: state.clientId, body };
+    if (parentId) payload.parent_id = parentId;
+    if (authorName) payload.author_name = authorName;
+
+    await api(`/api/rooms/${state.roomSlug}/links/${link.id}/replies`, {
+      method: "POST",
+      body: payload
+    });
+
+    form.remove();
+    delete state.replies[link.id];
+    await loadRepliesForLink(link);
+
+    const section = container.closest(".replies-section");
+    if (section) renderReplySection(link, section);
+    updateReplyToggle(link);
+  } catch (error) {
+    setNotice(error.message);
+  }
+}
+
+function updateReplyToggle(link) {
+  const toggleBtn = document
+    .querySelector(`.replies-section[data-link-id="${link.id}"]`)
+    ?.closest(".link-card")
+    ?.querySelector(".reply-toggle");
+  if (toggleBtn) {
+    toggleBtn.textContent = `↩ ${link.reply_count || 0}`;
+  }
+}
+
+async function loadRepliesForLink(link) {
+  try {
+    const data = await api(`/api/rooms/${state.roomSlug}/links/${link.id}/replies`);
+    state.replies[link.id] = data.replies;
+    link.reply_count = data.replies.length;
+  } catch {
+    // keep existing replies if fetch fails
+  }
+}
+
+async function deleteReply(reply, wrapper) {
+  if (!state.adminKey) return;
+
+  try {
+    await api(`/api/rooms/${state.roomSlug}/links/${reply.link_id}/replies/${reply.id}`, {
+      method: "DELETE",
+      headers: { "x-admin-key": state.adminKey }
+    });
+
+    delete state.replies[reply.link_id];
+    wrapper.remove();
+
+    const link = state.links.find((l) => l.id === reply.link_id);
+    if (link) {
+      await loadRepliesForLink(link);
+      const section = document.querySelector(`.replies-section[data-link-id="${link.id}"]`);
+      if (section && state.expandedReplies.has(link.id)) {
+        renderReplySection(link, section);
+      }
+      updateReplyToggle(link);
+    }
+  } catch (error) {
+    setNotice(error.message);
+  }
 }
 
 function relativeTime(value) {
