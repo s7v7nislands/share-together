@@ -118,7 +118,7 @@ async function toggleVote(linkId) {
 
   const voteBtn = document.querySelector(`.link-card[data-link-id="${linkId}"] .vote`);
   if (voteBtn) {
-    voteBtn.textContent = `▲ ${response.link.upvote_count}`;
+    voteBtn.textContent = `${response.link.upvote_count}`;
     voteBtn.classList.toggle("active", response.link.viewer_has_upvoted);
   }
 }
@@ -215,7 +215,7 @@ function renderLink(link, index) {
   const vote = document.createElement("button");
   vote.className = `vote${link.viewer_has_upvoted ? " active" : ""}`;
   vote.type = "button";
-  vote.textContent = `▲ ${link.upvote_count}`;
+  vote.textContent = `${link.upvote_count}`;
   vote.addEventListener("click", () => toggleVote(link.id));
   actions.append(vote);
 
