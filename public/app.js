@@ -14,6 +14,8 @@ const els = {
   room: document.querySelector("#room"),
   createRoom: document.querySelector("#create-room"),
   homeCreateRoom: document.querySelector("#home-create-room"),
+  roomNameInput: document.querySelector("#room-name-input"),
+  roomList: document.querySelector("#room-list"),
   copyRoom: document.querySelector("#copy-room"),
   roomTitle: document.querySelector("#room-title"),
   form: document.querySelector("#submit-link"),
@@ -66,7 +68,8 @@ function schedulePoll() {
 
 async function createRoom() {
   setNotice("");
-  const response = await api("/api/rooms", { method: "POST" });
+  const name = els.roomNameInput?.value.trim() || undefined;
+  const response = await api("/api/rooms", { method: "POST", body: { name } });
   localStorage.setItem(adminKeyStorageKey(response.slug), response.admin_key);
   location.href = `/room/${response.slug}`;
 }
@@ -360,13 +363,100 @@ async function api(path, options = {}) {
 function showHome() {
   els.home.classList.remove("hidden");
   els.room.classList.add("hidden");
+  loadRoomList();
 }
 
-function showRoom(slug) {
+async function loadRoomList() {
+  try {
+    const data = await api("/api/rooms");
+    if (!data.rooms?.length) {
+      els.roomList.classList.add("hidden");
+      return;
+    }
+    els.roomList.classList.remove("hidden");
+    els.roomList.replaceChildren(
+      ...data.rooms.map((room) => {
+        const a = document.createElement("a");
+        a.className = "room-list-item";
+        a.href = `/room/${room.slug}`;
+        const name = document.createElement("span");
+        name.className = "room-list-name";
+        name.textContent = room.name || room.slug;
+        const meta = document.createElement("span");
+        meta.className = "room-list-meta";
+        meta.textContent = relativeTime(room.last_active_at);
+        a.append(name, meta);
+        return a;
+      })
+    );
+  } catch {
+    els.roomList.classList.add("hidden");
+  }
+}
+
+async function showRoom(slug) {
   state.adminKey = localStorage.getItem(adminKeyStorageKey(slug));
   els.home.classList.add("hidden");
   els.room.classList.remove("hidden");
   els.roomTitle.textContent = slug;
+  try {
+    const room = await api(`/api/rooms/${slug}`);
+    setRoomTitle(room.name || room.slug);
+    if (state.adminKey) {
+      els.roomTitle.classList.add("editable");
+      els.roomTitle.title = "Click to rename";
+      els.roomTitle.addEventListener("click", startRenameRoom);
+    }
+  } catch {
+    // keep slug as fallback title
+  }
+}
+
+function setRoomTitle(name) {
+  els.roomTitle.textContent = name;
+  els.roomTitle.dataset.name = name;
+}
+
+function startRenameRoom() {
+  const current = els.roomTitle.dataset.name || els.roomTitle.textContent;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = current;
+  input.maxLength = 64;
+  input.className = "room-title-input";
+
+  els.roomTitle.replaceChildren(input);
+  els.roomTitle.classList.remove("editable");
+  input.focus();
+  input.select();
+
+  async function commit() {
+    const name = input.value.trim();
+    input.replaceWith(document.createTextNode(name || current));
+    els.roomTitle.classList.add("editable");
+    if (!name || name === current) return;
+    try {
+      const room = await api(`/api/rooms/${state.roomSlug}`, {
+        method: "PATCH",
+        headers: { "x-admin-key": state.adminKey },
+        body: { name }
+      });
+      setRoomTitle(room.name || room.slug);
+    } catch (error) {
+      setNotice(error.message);
+      setRoomTitle(current);
+    }
+  }
+
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      input.blur();
+    } else if (event.key === "Escape") {
+      input.value = current;
+      input.blur();
+    }
+  });
 }
 
 function updateTabs() {
