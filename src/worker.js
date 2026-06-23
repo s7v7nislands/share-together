@@ -63,7 +63,8 @@ async function handleApi(request, env, url) {
     const voterId = sanitizeClientId(url.searchParams.get("client_id"));
     const order = sort === "hot" ? "upvote_count DESC, created_at DESC" : "created_at DESC";
     const rows = await env.DB.prepare(
-      `SELECT links.*, votes.id AS viewer_vote_id
+      `SELECT links.*, votes.id AS viewer_vote_id,
+              (SELECT COUNT(*) FROM replies WHERE replies.link_id = links.id AND replies.deleted_at IS NULL) AS reply_count
        FROM links
        LEFT JOIN votes ON votes.link_id = links.id AND votes.voter_id = ?
        WHERE links.room_id = ? AND links.deleted_at IS NULL
@@ -194,6 +195,103 @@ async function handleApi(request, env, url) {
     return json({ ok: true });
   }
 
+  // --- Replies ---
+
+  const repliesMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links\/([^/]+)\/replies$/);
+  if (repliesMatch && request.method === "GET") {
+    const room = await findRoom(env, repliesMatch[1]);
+    if (!room) return json({ error: "Room not found" }, 404);
+
+    const link = await env.DB.prepare(
+      "SELECT id FROM links WHERE id = ? AND room_id = ? AND deleted_at IS NULL"
+    ).bind(repliesMatch[2], room.id).first();
+    if (!link) return json({ error: "Link not found" }, 404);
+
+    const rows = await env.DB.prepare(
+      "SELECT * FROM replies WHERE link_id = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 200"
+    ).bind(link.id).all();
+
+    return json({ replies: rows.results.map(serializeReply) });
+  }
+
+  if (repliesMatch && request.method === "POST") {
+    const room = await findRoom(env, repliesMatch[1]);
+    if (!room) return json({ error: "Room not found" }, 404);
+
+    const link = await env.DB.prepare(
+      "SELECT id FROM links WHERE id = ? AND room_id = ? AND deleted_at IS NULL"
+    ).bind(repliesMatch[2], room.id).first();
+    if (!link) return json({ error: "Link not found" }, 404);
+
+    const body = await readJson(request);
+    const clientId = sanitizeClientId(body.client_id);
+    if (!clientId) return json({ error: "Missing client_id" }, 400);
+
+    await rateLimit(env, `client:${clientId}:reply`, 20, 60);
+    await rateLimit(env, `ip:${clientIp(request)}:reply`, 30, 60);
+    await rateLimit(env, `link:${link.id}:reply-day`, 300, 86400);
+
+    const replyBody = normalizeReplyBody(body.body);
+    if (!replyBody) return json({ error: "Reply body is required" }, 400);
+
+    let parentId = null;
+    let depth = 0;
+    if (body.parent_id) {
+      const parent = await env.DB.prepare(
+        "SELECT id, depth FROM replies WHERE id = ? AND link_id = ? AND deleted_at IS NULL"
+      ).bind(body.parent_id, link.id).first();
+      if (!parent) return json({ error: "Parent reply not found" }, 400);
+      if ((parent.depth || 0) >= 3) {
+        return json({ error: "Maximum nesting depth reached" }, 400);
+      }
+      parentId = parent.id;
+      depth = (parent.depth || 0) + 1;
+    }
+
+    const authorName = normalizeAuthorName(body.author_name, clientId);
+    const now = new Date().toISOString();
+    const reply = {
+      id: crypto.randomUUID(),
+      room_id: room.id,
+      link_id: link.id,
+      parent_id: parentId,
+      client_id: clientId,
+      author_name: authorName,
+      body: replyBody,
+      depth
+    };
+
+    await env.DB.prepare(
+      "INSERT INTO replies (id, room_id, link_id, parent_id, client_id, author_name, body, depth, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(reply.id, reply.room_id, reply.link_id, reply.parent_id, reply.client_id, reply.author_name, reply.body, reply.depth, now).run();
+
+    await touchRoom(env, room.id);
+
+    return json({ reply: serializeReply({ ...reply, created_at: now, deleted_at: null }) }, 201);
+  }
+
+  const replyDeleteMatch = url.pathname.match(/^\/api\/rooms\/([^/]+)\/links\/([^/]+)\/replies\/([^/]+)$/);
+  if (request.method === "DELETE" && replyDeleteMatch) {
+    const room = await findRoom(env, replyDeleteMatch[1]);
+    if (!room) return json({ error: "Room not found" }, 404);
+
+    const adminKey = request.headers.get("x-admin-key") || "";
+    if (!adminKey || await sha256(adminKey) !== room.admin_key_hash) {
+      return json({ error: "Forbidden" }, 403);
+    }
+
+    const reply = await env.DB.prepare(
+      "SELECT id FROM replies WHERE id = ? AND link_id = ? AND room_id = ? AND deleted_at IS NULL"
+    ).bind(replyDeleteMatch[3], replyDeleteMatch[2], room.id).first();
+    if (!reply) return json({ error: "Reply not found" }, 404);
+
+    await env.DB.prepare(
+      "UPDATE replies SET deleted_at = ? WHERE id = ?"
+    ).bind(new Date().toISOString(), reply.id).run();
+
+    return json({ ok: true });
+  }
+
   return json({ error: "Not found" }, 404);
 }
 
@@ -239,6 +337,7 @@ function serializeLink(link) {
     tags: parseTags(link.tags),
     recommendation_note: link.recommendation_note || null,
     upvote_count: link.upvote_count || 0,
+    reply_count: link.reply_count || 0,
     created_at: link.created_at,
     viewer_has_upvoted: Boolean(link.viewer_vote_id)
   };
@@ -279,6 +378,32 @@ export function normalizeRecommendationNote(value) {
   if (typeof value !== "string") return null;
   const note = value.trim().replace(/\s+/g, " ").slice(0, 280);
   return note || null;
+}
+
+function serializeReply(reply) {
+  return {
+    id: reply.id,
+    link_id: reply.link_id,
+    parent_id: reply.parent_id || null,
+    client_id: reply.client_id,
+    author_name: reply.author_name || "anon",
+    body: reply.body,
+    depth: reply.depth || 0,
+    created_at: reply.created_at
+  };
+}
+
+export function normalizeReplyBody(value) {
+  if (typeof value !== "string") return null;
+  const body = value.trim().replace(/\s+/g, " ").slice(0, 1000);
+  return body || null;
+}
+
+export function normalizeAuthorName(value, clientId) {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim().replace(/\s+/g, " ").slice(0, 32);
+  }
+  return `anon-${clientId.slice(0, 6)}`;
 }
 
 function sanitizeClientId(value) {

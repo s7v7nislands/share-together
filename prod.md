@@ -30,6 +30,9 @@ The MVP will use Cloudflare Workers for API routes, Cloudflare D1 for durable st
 14. As a room member, I want the page to refresh periodically, so that I can see new submissions without manually reloading.
 15. As a room creator, I want an admin capability stored locally, so that I can remove bad links from the room without a full login system.
 16. As a room creator, I want deletes to hide links from the room, so that spam or mistakes can be cleaned up.
+17. As a room member, I want to reply to shared links, so that I can discuss articles with the group.
+18. As a room member, I want to reply to other replies (nested), so that conversations can branch naturally.
+19. As a room creator, I want to delete replies, so that I can moderate discussions.
 
 ## Implementation Decisions
 
@@ -40,7 +43,7 @@ The MVP will use Cloudflare Workers for API routes, Cloudflare D1 for durable st
 - Rooms keep shared records long term.
 - The default list sort is newest.
 - The hot sort is based on `upvote_count DESC, created_at DESC`.
-- The MVP includes URL sharing and upvotes only. Comments are out of scope.
+- The MVP includes URL sharing, upvotes, and nested replies. Comments were previously out of scope but are now implemented.
 - Voting is upvote-only. Downvotes are out of scope.
 - Each browser gets a local anonymous `client_id`.
 - A `client_id` can upvote a given link once.
@@ -51,6 +54,7 @@ The MVP will use Cloudflare Workers for API routes, Cloudflare D1 for durable st
 - Links open in new browser tabs. The app does not iframe articles.
 - The MVP uses polling rather than WebSockets or Durable Objects.
 - Basic rate limits and SSRF defenses are required in the first version.
+- Replies use adjacency list nesting (parent_id). Maximum depth is 3 levels. Reply author names default to "anon-xxxx" (first 6 chars of client_id) but can be overridden per-reply.
 - Only `http:` and `https:` URLs are accepted.
 - Localhost, private IP, loopback, link-local, and metadata-service destinations are blocked before fetch.
 - D1 is the source of truth. KV is not required for the MVP.
@@ -66,7 +70,7 @@ The MVP will use Cloudflare Workers for API routes, Cloudflare D1 for durable st
 ## Out of Scope
 
 - User accounts, passwords, OAuth, magic links, or member management.
-- Comments, nested discussions, notifications, and mentions.
+- Comments, nested discussions, notifications, and mentions. (Nested replies are now implemented.)
 - Downvotes.
 - Full-text article extraction or reader mode.
 - Hosting uploaded videos, images, PDFs, or article content.
