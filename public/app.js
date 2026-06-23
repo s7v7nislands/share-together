@@ -116,12 +116,13 @@ function renderLinks() {
   els.empty.textContent = state.selectedTag
     ? `No links tagged "${state.selectedTag}" yet.`
     : "No links yet. Share the first article.";
-  els.links.replaceChildren(...visibleLinks.map(renderLink));
+  els.links.replaceChildren(...visibleLinks.map((link, i) => renderLink(link, i)));
 }
 
-function renderLink(link) {
+function renderLink(link, index) {
   const card = document.createElement("article");
   card.className = `link-card${link.image_url ? "" : " no-image"}`;
+  card.style.setProperty("--index", index);
 
   const content = document.createElement("div");
   const meta = document.createElement("p");
