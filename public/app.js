@@ -6,8 +6,33 @@ const state = {
   clientId: getOrCreate("share_together_client_id", () => crypto.randomUUID()),
   adminKey: null,
   replies: {},
-  expandedReplies: new Set()
+  expandedReplies: new Set(),
+  user: null,
+  authToken: localStorage.getItem("share_together_auth_token") || null
 };
+
+if (state.authToken) {
+  fetchUserInfo();
+}
+
+async function fetchUserInfo() {
+  try {
+    const headers = { Authorization: `Bearer ${state.authToken}` };
+    const res = await fetch("/api/auth/me", { headers });
+    if (res.ok) {
+      state.user = await res.json();
+      updateAuthUI();
+    } else {
+      // Token expired or invalid
+      state.authToken = null;
+      state.user = null;
+      localStorage.removeItem("share_together_auth_token");
+      updateAuthUI();
+    }
+  } catch {
+    // Network error, keep current state
+  }
+}
 
 const els = {
   home: document.querySelector("#home"),
@@ -26,7 +51,13 @@ const els = {
   tabs: document.querySelectorAll(".tab"),
   tagFilters: document.querySelector("#tag-filters"),
   links: document.querySelector("#links"),
-  empty: document.querySelector("#empty")
+  empty: document.querySelector("#empty"),
+  authArea: document.querySelector("#auth-area"),
+  wechatLogin: document.querySelector("#wechat-login"),
+  userMenu: document.querySelector("#user-menu"),
+  userAvatar: document.querySelector("#user-avatar"),
+  userNickname: document.querySelector("#user-nickname"),
+  logoutBtn: document.querySelector("#logout"),
 };
 
 els.createRoom.addEventListener("click", createRoom);
@@ -41,9 +72,26 @@ for (const tab of els.tabs) {
   });
 }
 
+els.wechatLogin.addEventListener("click", startWechatLogin);
+els.logoutBtn.addEventListener("click", logout);
+
 window.addEventListener("focus", () => {
   if (state.roomSlug) loadLinks();
 });
+
+// Handle OAuth callback token from URL fragment
+if (location.hash.startsWith("#token=")) {
+  const token = decodeURIComponent(location.hash.slice("#token=".length));
+  state.authToken = token;
+  localStorage.setItem("share_together_auth_token", token);
+  // Clean URL
+  history.replaceState(null, "", location.pathname + location.search);
+  fetchUserInfo();
+} else if (location.hash.startsWith("#error=")) {
+  const errorMsg = decodeURIComponent(location.hash.slice("#error=".length));
+  history.replaceState(null, "", location.pathname + location.search);
+  alert(`微信登录失败：${errorMsg}`);
+}
 
 if (state.roomSlug) {
   showRoom(state.roomSlug);
@@ -358,6 +406,42 @@ async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "Request failed");
   return data;
+}
+
+function updateAuthUI() {
+  if (state.user) {
+    els.wechatLogin.classList.add("hidden");
+    els.userMenu.classList.remove("hidden");
+    els.userAvatar.src = state.user.avatar_url || "";
+    els.userAvatar.alt = state.user.nickname || "";
+    els.userNickname.textContent = state.user.nickname || "微信用户";
+    els.userAvatar.classList.toggle("no-avatar", !state.user.avatar_url);
+  } else {
+    els.wechatLogin.classList.remove("hidden");
+    els.userMenu.classList.add("hidden");
+  }
+}
+
+async function startWechatLogin() {
+  try {
+    const currentPath = location.pathname + location.search;
+    const res = await fetch(`/api/auth/wechat/url?return_url=${encodeURIComponent(currentPath)}`);
+    const data = await res.json();
+    if (data.auth_url) {
+      location.href = data.auth_url;
+    } else {
+      alert("无法获取微信登录链接");
+    }
+  } catch (error) {
+    alert(`登录失败：${error.message}`);
+  }
+}
+
+function logout() {
+  state.authToken = null;
+  state.user = null;
+  localStorage.removeItem("share_together_auth_token");
+  updateAuthUI();
 }
 
 function showHome() {

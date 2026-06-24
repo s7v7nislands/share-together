@@ -1061,4 +1061,79 @@ h1, h2, h3, h4 {
     flex: 1;
     text-align: center;
   }
+
+  .auth-area {
+    margin-left: 0;
+  }
+}
+
+/* --- Auth --- */
+
+.auth-area {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.wechat-login {
+  background: #07c160;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wechat-login:hover {
+  background: #06ad56;
+}
+
+.user-menu {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.user-menu.hidden,
+.wechat-login.hidden {
+  display: none;
+}
+
+.user-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border, #ddd);
+}
+
+.user-avatar.no-avatar {
+  display: none;
+}
+
+.user-nickname {
+  font-size: 0.875rem;
+  color: var(--ink, #333);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  background: none;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: #999;
+}
+
+.logout-btn:hover {
+  color: #333;
+  border-color: #999;
 }
