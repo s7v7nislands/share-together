@@ -124,6 +124,10 @@ async function createRoom() {
 
 async function submitLink(event) {
   event.preventDefault();
+  if (!state.user) {
+    setNotice("请先使用微信登录");
+    return;
+  }
   const url = els.urlInput.value.trim();
   const tags = parseTagInput(els.tagsInput.value);
   const recommendationNote = normalizeRecommendationNote(els.recommendationInput.value);
@@ -133,7 +137,7 @@ async function submitLink(event) {
   try {
     const response = await api(`/api/rooms/${state.roomSlug}/links`, {
       method: "POST",
-      body: { url, tags, recommendation_note: recommendationNote, client_id: state.clientId }
+      body: { url, tags, recommendation_note: recommendationNote }
     });
     els.urlInput.value = "";
     els.tagsInput.value = "";
@@ -166,9 +170,14 @@ async function toggleVote(linkId) {
   const current = state.links.find((l) => l.id === linkId);
   if (!current) return;
 
+  if (!state.user) {
+    setNotice("请先使用微信登录");
+    return;
+  }
+
   const method = current.viewer_has_upvoted ? "DELETE" : "POST";
-  const query = method === "DELETE" ? `?client_id=${encodeURIComponent(state.clientId)}` : "";
-  const body = method === "POST" ? { client_id: state.clientId } : undefined;
+  const query = "";
+  const body = method === "POST" ? {} : undefined;
   const response = await api(`/api/rooms/${state.roomSlug}/links/${linkId}/vote${query}`, { method, body });
 
   state.links = state.links.map((item) => item.id === linkId ? response.link : item);
@@ -273,7 +282,12 @@ function renderLink(link, index) {
   vote.className = `vote${link.viewer_has_upvoted ? " active" : ""}`;
   vote.type = "button";
   vote.textContent = `${link.upvote_count}`;
-  vote.addEventListener("click", () => toggleVote(link.id));
+  if (!state.user) {
+    vote.title = "登录后才能投票";
+    vote.addEventListener("click", () => setNotice("请先使用微信登录"));
+  } else {
+    vote.addEventListener("click", () => toggleVote(link.id));
+  }
   actions.append(vote);
 
   const replyBtn = document.createElement("button");
@@ -397,6 +411,9 @@ function sameTag(left, right) {
 
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
+  if (state.authToken) {
+    headers["Authorization"] = `Bearer ${state.authToken}`;
+  }
   let body;
   if (options.body) {
     headers["content-type"] = "application/json";
@@ -735,11 +752,16 @@ function renderReplyForm(link, parentId, container) {
   const form = document.createElement("form");
   form.className = "reply-form";
 
-  const nameInput = document.createElement("input");
-  nameInput.type = "text";
-  nameInput.name = "author_name";
-  nameInput.placeholder = "Your name (optional)";
-  nameInput.maxLength = 32;
+  // Name input only for anonymous users
+  let nameInput;
+  if (!state.user) {
+    nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.name = "author_name";
+    nameInput.placeholder = "Your name (optional)";
+    nameInput.maxLength = 32;
+    form.append(nameInput);
+  }
 
   const bodyInput = document.createElement("input");
   bodyInput.type = "text";
@@ -753,10 +775,17 @@ function renderReplyForm(link, parentId, container) {
   submitBtn.type = "submit";
   submitBtn.textContent = "Reply";
 
-  form.append(nameInput, bodyInput, submitBtn);
+  if (!state.user) {
+    bodyInput.disabled = true;
+    bodyInput.placeholder = "登录后才能回复";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "请先登录";
+  }
+
+  form.append(bodyInput, submitBtn);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    submitReply(link, parentId, nameInput.value.trim(), bodyInput.value.trim(), form, container);
+    submitReply(link, parentId, nameInput?.value.trim() || "", bodyInput.value.trim(), form, container);
   });
 
   container.append(form);
@@ -766,11 +795,16 @@ function renderReplyFormInline(parentReply, wrapper) {
   const form = document.createElement("form");
   form.className = "reply-form reply-form-inline";
 
-  const nameInput = document.createElement("input");
-  nameInput.type = "text";
-  nameInput.name = "author_name";
-  nameInput.placeholder = "Your name (optional)";
-  nameInput.maxLength = 32;
+  // Name input only for anonymous users
+  let nameInput;
+  if (!state.user) {
+    nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.name = "author_name";
+    nameInput.placeholder = "Your name (optional)";
+    nameInput.maxLength = 32;
+    form.append(nameInput);
+  }
 
   const bodyInput = document.createElement("input");
   bodyInput.type = "text";
@@ -793,14 +827,21 @@ function renderReplyFormInline(parentReply, wrapper) {
   cancelBtn.textContent = "Cancel";
   cancelBtn.addEventListener("click", () => form.remove());
 
+  if (!state.user) {
+    bodyInput.disabled = true;
+    bodyInput.placeholder = "登录后才能回复";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "请先登录";
+  }
+
   actions.append(submitBtn, cancelBtn);
-  form.append(nameInput, bodyInput, actions);
+  form.append(bodyInput, actions);
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const parentLink = state.links.find((l) => l.id === parentReply.link_id);
     if (!parentLink) return;
-    submitReply(parentLink, parentReply.id, nameInput.value.trim(), bodyInput.value.trim(), form, wrapper);
+    submitReply(parentLink, parentReply.id, nameInput?.value.trim() || "", bodyInput.value.trim(), form, wrapper);
   });
 
   wrapper.append(form);
@@ -810,8 +851,13 @@ function renderReplyFormInline(parentReply, wrapper) {
 async function submitReply(link, parentId, authorName, body, form, container) {
   if (!body) return;
 
+  if (!state.user) {
+    setNotice("请先使用微信登录");
+    return;
+  }
+
   try {
-    const payload = { client_id: state.clientId, body };
+    const payload = { body };
     if (parentId) payload.parent_id = parentId;
     if (authorName) payload.author_name = authorName;
 
