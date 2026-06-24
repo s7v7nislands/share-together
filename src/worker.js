@@ -1,6 +1,6 @@
 import { fetchMetadata } from "./metadata.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
-import { handleWechatAuthUrl, handleWechatCallback, handleAuthMe, verifyAuth } from "./auth.js";
+import { handleLoginStart, handleLoginPoll, handleMiniLogin, handleAuthMe, verifyAuth } from "./auth.js";
 
 export default {
   async fetch(request, env) {
@@ -53,13 +53,18 @@ async function handleApi(request, env, url) {
 
   // --- Auth ---
 
-  if (request.method === "GET" && url.pathname === "/api/auth/wechat/url") {
-    await rateLimit(env, `ip:${clientIp(request)}:auth-url`, 30, 60);
-    return handleWechatAuthUrl(env, url);
+  if (request.method === "POST" && url.pathname === "/api/auth/wechat/start") {
+    await rateLimit(env, `ip:${clientIp(request)}:auth-start`, 10, 60);
+    return handleLoginStart(env);
   }
 
-  if (request.method === "GET" && url.pathname === "/api/auth/wechat/callback") {
-    return handleWechatCallback(env, request, url);
+  if (request.method === "GET" && url.pathname === "/api/auth/wechat/poll") {
+    return handleLoginPoll(env, url);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/wechat/mini-login") {
+    await rateLimit(env, `ip:${clientIp(request)}:mini-login`, 30, 60);
+    return handleMiniLogin(env, request);
   }
 
   if (request.method === "GET" && url.pathname === "/api/auth/me") {

@@ -1,14 +1,12 @@
 import { signJwt, verifyJwt } from "./jwt.js";
 
-const WECHAT_OAUTH_BASE = "https://open.weixin.qq.com/connect/qrconnect";
-const WECHAT_API_BASE = "https://api.weixin.qq.com/sns";
+const WECHAT_API_BASE = "https://api.weixin.qq.com";
+const POLL_EXPIRY_SECONDS = 300;    // 5 minutes
+const SESSION_EXPIRY = 604800;      // 7 days
 
-const STATE_EXPIRY = 300;      // 5 minutes
-const SESSION_EXPIRY = 604800; // 7 days
-
-function redirect(url, status = 302) {
-  return new Response(null, { status, headers: { Location: url } });
-}
+// Mini program access_token cache
+let cachedAccessToken = null;
+let accessTokenExpiresAt = 0;
 
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
@@ -17,87 +15,171 @@ function json(payload, status = 200) {
   });
 }
 
-// GET /api/auth/wechat/url
-export async function handleWechatAuthUrl(env, url) {
-  let returnUrl = url.searchParams.get("return_url") || "/";
-  // Validate returnUrl is same-origin to prevent open redirect
-  if (!returnUrl.startsWith("/")) {
-    try {
-      const parsed = new URL(returnUrl);
-      if (parsed.origin !== url.origin) returnUrl = "/";
-    } catch {
-      returnUrl = "/";
-    }
+function randomDigits(length) {
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += Math.floor(Math.random() * 10).toString();
   }
-
-  const stateJwt = await signJwt({ returnUrl }, env.JWT_SECRET, STATE_EXPIRY);
-  const redirectUri = encodeURIComponent(`${url.origin}/api/auth/wechat/callback`);
-
-  const authUrl =
-    `${WECHAT_OAUTH_BASE}?appid=${env.WECHAT_APP_ID}` +
-    `&redirect_uri=${redirectUri}` +
-    `&response_type=code` +
-    `&scope=snsapi_login` +
-    `&state=${encodeURIComponent(stateJwt)}`;
-
-  return json({ auth_url: authUrl });
+  return result;
 }
 
-// GET /api/auth/wechat/callback?code=xxx&state=yyy
-export async function handleWechatCallback(env, request, url) {
-  const code = url.searchParams.get("code");
-  const stateParam = url.searchParams.get("state");
-
-  if (!code) {
-    return redirect(`/?error=${encodeURIComponent("Missing authorization code")}`);
+// Fetch or reuse mini program access_token
+async function getMiniAccessToken(env) {
+  const now = Date.now();
+  if (cachedAccessToken && now < accessTokenExpiresAt) {
+    return cachedAccessToken;
   }
-
-  // Verify state JWT -- mandatory for CSRF protection
-  if (!stateParam) {
-    return redirect(`/?error=${encodeURIComponent("Invalid state")}`);
+  const url =
+    `${WECHAT_API_BASE}/cgi-bin/token?grant_type=client_credential` +
+    `&appid=${env.WECHAT_MINI_APP_ID}&secret=${env.WECHAT_MINI_APP_SECRET}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.access_token) {
+    cachedAccessToken = data.access_token;
+    accessTokenExpiresAt = now + (data.expires_in - 300) * 1000;
+    return cachedAccessToken;
   }
-  const statePayload = await verifyJwt(stateParam, env.JWT_SECRET);
-  if (!statePayload) {
-    return redirect(`/?error=${encodeURIComponent("Invalid state")}`);
-  }
-  const returnUrl = statePayload.returnUrl || "/";
+  console.error("Failed to get mini program access_token:", { errcode: data.errcode, errmsg: data.errmsg });
+  throw new Error("Failed to get mini program access_token");
+}
 
-  // Exchange code for access_token
-  let tokenResponse;
+// POST /api/auth/wechat/start
+export async function handleLoginStart(env) {
+  const pollId = randomDigits(6);
+  const verifyCode = randomDigits(6);
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(
+    "INSERT INTO login_sessions (poll_id, verify_code, created_at) VALUES (?, ?, ?)"
+  ).bind(pollId, verifyCode, now).run();
+
+  // Generate mini program QR code with scene parameter
+  let qrcode = null;
   try {
-    const tokenUrl =
-      `${WECHAT_API_BASE}/oauth2/access_token?appid=${env.WECHAT_APP_ID}` +
-      `&secret=${env.WECHAT_APP_SECRET}&code=${code}&grant_type=authorization_code`;
-    const res = await fetch(tokenUrl);
-    tokenResponse = await res.json();
-  } catch {
-    return redirect(`${returnUrl}#error=${encodeURIComponent("WeChat API unavailable")}`);
-  }
-
-  if (tokenResponse.errcode) {
-    console.error("WeChat token error:", { errcode: tokenResponse.errcode, errmsg: tokenResponse.errmsg });
-    return redirect(`${returnUrl}#error=${encodeURIComponent(tokenResponse.errmsg || "WeChat auth failed")}`);
-  }
-
-  const { openid, access_token, unionid } = tokenResponse;
-
-  // Get user info
-  let nickname = null;
-  let avatarUrl = null;
-  try {
-    const userUrl =
-      `${WECHAT_API_BASE}/userinfo?access_token=${access_token}&openid=${openid}`;
-    const userRes = await fetch(userUrl);
-    const userInfo = await userRes.json();
-    if (!userInfo.errcode) {
-      nickname = userInfo.nickname || null;
-      avatarUrl = userInfo.headimgurl || null;
+    const accessToken = await getMiniAccessToken(env);
+    const wxUrl = `${WECHAT_API_BASE}/wxa/getwxacodeunlimit?access_token=${accessToken}`;
+    const res = await fetch(wxUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        scene: pollId,
+        page: "pages/login/login",
+        check_path: false,
+        env_version: "release",
+        width: 280
+      })
+    });
+    if (res.ok) {
+      const buffer = await res.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+      qrcode = `data:image/png;base64,${base64}`;
+    } else {
+      // wxacode API returns error as JSON even with 200-ish status
+      const errData = await res.json().catch(() => ({}));
+      console.error("wxacode error:", errData);
     }
-  } catch {
-    // User info is best-effort; proceed without it
+  } catch (e) {
+    console.error("Failed to generate mini program code:", e.message);
+    // Proceed without QR code — frontend will show verify_code only
   }
 
-  // Upsert user
+  return json({ poll_id: pollId, verify_code: verifyCode, qrcode });
+}
+
+// GET /api/auth/wechat/poll?poll_id=xxx
+export async function handleLoginPoll(env, url) {
+  const pollId = url.searchParams.get("poll_id");
+  if (!pollId) {
+    return json({ error: "Missing poll_id" }, 400);
+  }
+
+  const session = await env.DB.prepare(
+    "SELECT session_jwt, created_at FROM login_sessions WHERE poll_id = ?"
+  ).bind(pollId).first();
+
+  if (!session) {
+    return json({ error: "Invalid poll_id" }, 404);
+  }
+
+  if (session.session_jwt) {
+    // Login complete — return token and clean up
+    await env.DB.prepare(
+      "DELETE FROM login_sessions WHERE poll_id = ?"
+    ).bind(pollId).run();
+    return json({ token: session.session_jwt });
+  }
+
+  // Check expiry
+  const createdAt = new Date(session.created_at).getTime();
+  if (Date.now() - createdAt > POLL_EXPIRY_SECONDS * 1000) {
+    await env.DB.prepare(
+      "DELETE FROM login_sessions WHERE poll_id = ?"
+    ).bind(pollId).run();
+    return json({ expired: true });
+  }
+
+  return json({ ready: false });
+}
+
+// POST /api/auth/wechat/mini-login  (called by mini program)
+export async function handleMiniLogin(env, request) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const pollId = (body.poll_id || "").toString().trim();
+  const code = (body.code || "").toString().trim();
+
+  if (!pollId || !code) {
+    return json({ error: "Missing poll_id or code" }, 400);
+  }
+
+  // Verify poll session exists and not expired
+  const session = await env.DB.prepare(
+    "SELECT created_at, session_jwt FROM login_sessions WHERE poll_id = ?"
+  ).bind(pollId).first();
+
+  if (!session) {
+    return json({ error: "Invalid poll_id" }, 404);
+  }
+
+  if (session.session_jwt) {
+    return json({ error: "Session already completed" }, 409);
+  }
+
+  const createdAt = new Date(session.created_at).getTime();
+  if (Date.now() - createdAt > POLL_EXPIRY_SECONDS * 1000) {
+    await env.DB.prepare(
+      "DELETE FROM login_sessions WHERE poll_id = ?"
+    ).bind(pollId).run();
+    return json({ error: "Session expired" }, 410);
+  }
+
+  // Exchange code for openid via jscode2session
+  let openid;
+  try {
+    const wxUrl =
+      `${WECHAT_API_BASE}/sns/jscode2session?appid=${env.WECHAT_MINI_APP_ID}` +
+      `&secret=${env.WECHAT_MINI_APP_SECRET}&js_code=${code}&grant_type=authorization_code`;
+    const res = await fetch(wxUrl);
+    const data = await res.json();
+    if (data.errcode) {
+      console.error("jscode2session error:", { errcode: data.errcode, errmsg: data.errmsg });
+      return json({ error: "WeChat auth failed" }, 400);
+    }
+    openid = data.openid;
+  } catch {
+    return json({ error: "WeChat API unavailable" }, 502);
+  }
+
+  if (!openid) {
+    return json({ error: "WeChat auth failed" }, 400);
+  }
+
+  // Upsert user — jscode2session only returns openid, no nickname/avatar
   const now = new Date().toISOString();
   const existing = await env.DB.prepare(
     "SELECT id FROM users WHERE wechat_openid = ?"
@@ -107,23 +189,28 @@ export async function handleWechatCallback(env, request, url) {
   if (existing) {
     userId = existing.id;
     await env.DB.prepare(
-      "UPDATE users SET wechat_unionid = COALESCE(?, wechat_unionid), nickname = ?, avatar_url = ?, last_login_at = ? WHERE id = ?"
-    ).bind(unionid || null, nickname, avatarUrl, now, userId).run();
+      "UPDATE users SET last_login_at = ? WHERE id = ?"
+    ).bind(now, userId).run();
   } else {
     userId = crypto.randomUUID();
     await env.DB.prepare(
       "INSERT INTO users (id, wechat_openid, wechat_unionid, nickname, avatar_url, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).bind(userId, openid, unionid || null, nickname, avatarUrl, now, now).run();
+    ).bind(userId, openid, null, null, null, now, now).run();
   }
 
   // Sign session JWT
   const sessionJwt = await signJwt(
-    { sub: userId, openid, nickname, avatar_url: avatarUrl },
+    { sub: userId, openid, nickname: null, avatar_url: null },
     env.JWT_SECRET,
     SESSION_EXPIRY
   );
 
-  return redirect(`${returnUrl}#token=${encodeURIComponent(sessionJwt)}`);
+  // Store JWT in login session so web poll can retrieve it
+  await env.DB.prepare(
+    "UPDATE login_sessions SET session_jwt = ?, completed_at = ? WHERE poll_id = ?"
+  ).bind(sessionJwt, now, pollId).run();
+
+  return json({ ok: true });
 }
 
 // GET /api/auth/me
