@@ -1,5 +1,7 @@
 import { fetchMetadata } from "./metadata.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
+import { signJwt, verifyJwt } from "./jwt.js";
+import { handleWechatAuthUrl, handleWechatCallback, handleAuthMe, verifyAuth } from "./auth.js";
 
 export default {
   async fetch(request, env) {
@@ -48,6 +50,20 @@ async function handleApi(request, env, url) {
     ).bind(room.id, room.slug, adminHash, room.name, now, now).run();
 
     return json({ slug: room.slug, name: room.name, admin_key: room.adminKey });
+  }
+
+  // --- Auth ---
+
+  if (request.method === "GET" && url.pathname === "/api/auth/wechat/url") {
+    return handleWechatAuthUrl(env, url);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/auth/wechat/callback") {
+    return handleWechatCallback(env, request, url);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/auth/me") {
+    return handleAuthMe(request, env);
   }
 
   if (request.method === "GET" && url.pathname === "/api/rooms") {
@@ -108,11 +124,14 @@ async function handleApi(request, env, url) {
     const room = await findRoom(env, linksMatch[1]);
     if (!room) return json({ error: "Room not found" }, 404);
 
-    const body = await readJson(request);
-    const clientId = sanitizeClientId(body.client_id);
-    if (!clientId) return json({ error: "Missing client_id" }, 400);
+    const authUser = await verifyAuth(request, env);
+    if (!authUser) return json({ error: "Login required" }, 401);
 
-    await rateLimit(env, `client:${clientId}:submit`, 3, 60);
+    const body = await readJson(request);
+    // User identity from JWT
+    const userId = authUser.sub;
+
+    await rateLimit(env, `user:${userId}:submit`, 3, 60);
     await rateLimit(env, `ip:${clientIp(request)}:submit`, 10, 60);
     await rateLimit(env, `room:${room.id}:submit-day`, 500, 86400);
 
@@ -172,10 +191,11 @@ async function handleApi(request, env, url) {
     const room = await findRoom(env, voteMatch[1]);
     if (!room) return json({ error: "Room not found" }, 404);
 
-    const body = request.method === "POST" ? await readJson(request) : {};
-    const clientId = sanitizeClientId(body.client_id || url.searchParams.get("client_id"));
-    if (!clientId) return json({ error: "Missing client_id" }, 400);
-    await rateLimit(env, `client:${clientId}:vote`, 60, 60);
+    const authUser = await verifyAuth(request, env);
+    if (!authUser) return json({ error: "Login required" }, 401);
+    const voterId = authUser.sub;
+
+    await rateLimit(env, `user:${voterId}:vote`, 60, 60);
 
     const link = await env.DB.prepare(
       "SELECT id, upvote_count FROM links WHERE id = ? AND room_id = ? AND deleted_at IS NULL"
@@ -186,14 +206,14 @@ async function handleApi(request, env, url) {
       const voteId = crypto.randomUUID();
       const result = await env.DB.prepare(
         "INSERT OR IGNORE INTO votes (id, room_id, link_id, voter_id, value, created_at) VALUES (?, ?, ?, ?, 1, ?)"
-      ).bind(voteId, room.id, link.id, clientId, new Date().toISOString()).run();
+      ).bind(voteId, room.id, link.id, voterId, new Date().toISOString()).run();
       if (result.meta.changes) {
         await env.DB.prepare("UPDATE links SET upvote_count = upvote_count + 1 WHERE id = ?").bind(link.id).run();
       }
     } else {
       const result = await env.DB.prepare(
         "DELETE FROM votes WHERE link_id = ? AND voter_id = ?"
-      ).bind(link.id, clientId).run();
+      ).bind(link.id, voterId).run();
       if (result.meta.changes) {
         await env.DB.prepare("UPDATE links SET upvote_count = MAX(0, upvote_count - 1) WHERE id = ?").bind(link.id).run();
       }
@@ -204,7 +224,7 @@ async function handleApi(request, env, url) {
        FROM links
        LEFT JOIN votes ON votes.link_id = links.id AND votes.voter_id = ?
        WHERE links.id = ?`
-    ).bind(clientId, link.id).first();
+    ).bind(voterId, link.id).first();
     return json({ link: serializeLink(updated) });
   }
 
@@ -252,11 +272,12 @@ async function handleApi(request, env, url) {
     ).bind(repliesMatch[2], room.id).first();
     if (!link) return json({ error: "Link not found" }, 404);
 
-    const body = await readJson(request);
-    const clientId = sanitizeClientId(body.client_id);
-    if (!clientId) return json({ error: "Missing client_id" }, 400);
+    const authUser = await verifyAuth(request, env);
+    if (!authUser) return json({ error: "Login required" }, 401);
 
-    await rateLimit(env, `client:${clientId}:reply`, 20, 60);
+    const body = await readJson(request);
+
+    await rateLimit(env, `user:${authUser.sub}:reply`, 20, 60);
     await rateLimit(env, `ip:${clientIp(request)}:reply`, 30, 60);
     await rateLimit(env, `link:${link.id}:reply-day`, 300, 86400);
 
@@ -277,14 +298,16 @@ async function handleApi(request, env, url) {
       depth = (parent.depth || 0) + 1;
     }
 
-    const authorName = normalizeAuthorName(body.author_name, clientId);
+    const authorName = body.author_name?.trim()
+      ? normalizeAuthorName(body.author_name, authUser.sub)
+      : (authUser.nickname || normalizeAuthorName(null, authUser.sub));
     const now = new Date().toISOString();
     const reply = {
       id: crypto.randomUUID(),
       room_id: room.id,
       link_id: link.id,
       parent_id: parentId,
-      client_id: clientId,
+      client_id: authUser.sub,
       author_name: authorName,
       body: replyBody,
       depth
