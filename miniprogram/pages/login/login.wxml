@@ -1,0 +1,16 @@
+<view class="container">
+  <view wx:if="{{status === 'loading'}}" class="status loading">
+    <view class="spinner"></view>
+    <text class="message">{{message}}</text>
+  </view>
+
+  <view wx:if="{{status === 'success'}}" class="status success">
+    <view class="icon">✓</view>
+    <text class="message">{{message}}</text>
+  </view>
+
+  <view wx:if="{{status === 'error'}}" class="status error">
+    <view class="icon">✕</view>
+    <text class="message">{{message}}</text>
+  </view>
+</view>

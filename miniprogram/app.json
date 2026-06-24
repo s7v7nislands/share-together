@@ -1,0 +1,8 @@
+{
+  "pages": [
+    "pages/login/login"
+  ],
+  "window": {
+    "navigationBarTitleText": "登录"
+  }
+}
