@@ -19,7 +19,16 @@ function json(payload, status = 200) {
 
 // GET /api/auth/wechat/url
 export async function handleWechatAuthUrl(env, url) {
-  const returnUrl = url.searchParams.get("return_url") || "/";
+  let returnUrl = url.searchParams.get("return_url") || "/";
+  // Validate returnUrl is same-origin to prevent open redirect
+  if (!returnUrl.startsWith("/")) {
+    try {
+      const parsed = new URL(returnUrl);
+      if (parsed.origin !== url.origin) returnUrl = "/";
+    } catch {
+      returnUrl = "/";
+    }
+  }
 
   const stateJwt = await signJwt({ returnUrl }, env.JWT_SECRET, STATE_EXPIRY);
   const redirectUri = encodeURIComponent(`${url.origin}/api/auth/wechat/callback`);

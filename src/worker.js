@@ -1,6 +1,5 @@
 import { fetchMetadata } from "./metadata.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
-import { signJwt, verifyJwt } from "./jwt.js";
 import { handleWechatAuthUrl, handleWechatCallback, handleAuthMe, verifyAuth } from "./auth.js";
 
 export default {
@@ -55,6 +54,7 @@ async function handleApi(request, env, url) {
   // --- Auth ---
 
   if (request.method === "GET" && url.pathname === "/api/auth/wechat/url") {
+    await rateLimit(env, `ip:${clientIp(request)}:auth-url`, 30, 60);
     return handleWechatAuthUrl(env, url);
   }
 
@@ -105,7 +105,13 @@ async function handleApi(request, env, url) {
     if (!room) return json({ error: "Room not found" }, 404);
 
     const sort = url.searchParams.get("sort") === "hot" ? "hot" : "newest";
-    const voterId = sanitizeClientId(url.searchParams.get("client_id"));
+    let voterId = null;
+    const authUser = await verifyAuth(request, env);
+    if (authUser) {
+      voterId = authUser.sub;
+    } else {
+      voterId = sanitizeClientId(url.searchParams.get("client_id"));
+    }
     const order = sort === "hot" ? "upvote_count DESC, created_at DESC" : "created_at DESC";
     const rows = await env.DB.prepare(
       `SELECT links.*, votes.id AS viewer_vote_id,
@@ -300,7 +306,7 @@ async function handleApi(request, env, url) {
 
     const authorName = body.author_name?.trim()
       ? normalizeAuthorName(body.author_name, authUser.sub)
-      : (authUser.nickname || normalizeAuthorName(null, authUser.sub));
+      : (authUser.nickname || "微信用户");
     const now = new Date().toISOString();
     const reply = {
       id: crypto.randomUUID(),

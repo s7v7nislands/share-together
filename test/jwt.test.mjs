@@ -1,6 +1,6 @@
 import { signJwt, verifyJwt } from "../src/jwt.js";
 import { strict as assert } from "node:assert";
-import { describe, it, before, after } from "node:test";
+import { describe, it } from "node:test";
 
 const SECRET = "test-secret-key-32-bytes-long!!";
 

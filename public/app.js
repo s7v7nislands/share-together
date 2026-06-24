@@ -152,7 +152,8 @@ async function submitLink(event) {
 
 async function loadLinks() {
   try {
-    const response = await api(`/api/rooms/${state.roomSlug}/links?sort=${state.sort}&client_id=${encodeURIComponent(state.clientId)}`);
+    const authParam = state.user ? "" : `&client_id=${encodeURIComponent(state.clientId)}`;
+    const response = await api(`/api/rooms/${state.roomSlug}/links?sort=${state.sort}${authParam}`);
     const prev = linksFingerprint(state.links);
     const next = linksFingerprint(response.links);
     state.links = response.links;
