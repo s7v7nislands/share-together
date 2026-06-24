@@ -43,13 +43,15 @@ export async function handleWechatCallback(env, request, url) {
     return redirect(`/?error=${encodeURIComponent("Missing authorization code")}`);
   }
 
-  // Verify state JWT
-  let statePayload = null;
-  if (stateParam) {
-    statePayload = await verifyJwt(stateParam, env.JWT_SECRET);
+  // Verify state JWT -- mandatory for CSRF protection
+  if (!stateParam) {
+    return redirect(`/?error=${encodeURIComponent("Invalid state")}`);
   }
-  // If state verification fails, still proceed but warn (state tampering or expiry)
-  const returnUrl = statePayload?.returnUrl || "/";
+  const statePayload = await verifyJwt(stateParam, env.JWT_SECRET);
+  if (!statePayload) {
+    return redirect(`/?error=${encodeURIComponent("Invalid state")}`);
+  }
+  const returnUrl = statePayload.returnUrl || "/";
 
   // Exchange code for access_token
   let tokenResponse;
@@ -64,7 +66,7 @@ export async function handleWechatCallback(env, request, url) {
   }
 
   if (tokenResponse.errcode) {
-    console.error("WeChat token error:", tokenResponse);
+    console.error("WeChat token error:", { errcode: tokenResponse.errcode, errmsg: tokenResponse.errmsg });
     return redirect(`${returnUrl}#error=${encodeURIComponent(tokenResponse.errmsg || "WeChat auth failed")}`);
   }
 
