@@ -6,8 +6,9 @@ The MVP runs on Cloudflare Workers with static assets and D1.
 
 ## What Is Built
 
-- Random room creation
-- Link-by-URL room access, no login
+- Room creation with optional name, rename
+- Link-by-URL room access, anonymous read-only browsing
+- WeChat mini-program bridge login for write access (post, vote, reply)
 - URL submission with server-side metadata parsing
 - Room-level URL deduplication after tracking parameter cleanup
 - Newest and hot sorting
@@ -63,12 +64,14 @@ npm run db:migrate:local
 Set up environment variables for WeChat login (create `.dev.vars` from the template below):
 
 ```
-WECHAT_APP_ID=your-wechat-open-platform-app-id
-WECHAT_APP_SECRET=your-wechat-open-platform-app-secret
+WECHAT_MINI_APP_ID=your-mini-program-app-id
+WECHAT_MINI_APP_SECRET=your-mini-program-app-secret
 JWT_SECRET=a-random-secret-key-for-jwt-signing
 ```
 
 For production, set these via `wrangler secret put` or the Cloudflare dashboard.
+
+**Mini program setup:** See `miniprogram/` directory for the login page code. Deploy it to your personal WeChat mini program. The backend calls `wxacode.getUnlimited` to generate dynamic QR codes with scene parameters, so the mini program must be published and have `pages/login/login` as a valid page.
 
 Start the Worker dev server:
 
