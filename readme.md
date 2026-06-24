@@ -60,6 +60,16 @@ Apply the local D1 migration:
 npm run db:migrate:local
 ```
 
+Set up environment variables for WeChat login (create `.dev.vars` from the template below):
+
+```
+WECHAT_APP_ID=your-wechat-open-platform-app-id
+WECHAT_APP_SECRET=your-wechat-open-platform-app-secret
+JWT_SECRET=a-random-secret-key-for-jwt-signing
+```
+
+For production, set these via `wrangler secret put` or the Cloudflare dashboard.
+
 Start the Worker dev server:
 
 ```bash
