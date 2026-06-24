@@ -58,6 +58,10 @@ const els = {
   userAvatar: document.querySelector("#user-avatar"),
   userNickname: document.querySelector("#user-nickname"),
   logoutBtn: document.querySelector("#logout"),
+  loginModal: document.querySelector("#login-modal"),
+  loginQrcode: document.querySelector("#login-qrcode"),
+  loginVerifyCodeText: document.querySelector("#login-verify-code-text"),
+  loginCancel: document.querySelector("#login-cancel"),
 };
 
 els.createRoom.addEventListener("click", createRoom);
@@ -74,24 +78,11 @@ for (const tab of els.tabs) {
 
 els.wechatLogin.addEventListener("click", startWechatLogin);
 els.logoutBtn.addEventListener("click", logout);
+els.loginCancel.addEventListener("click", cancelLogin);
 
 window.addEventListener("focus", () => {
   if (state.roomSlug) loadLinks();
 });
-
-// Handle OAuth callback token from URL fragment
-if (location.hash.startsWith("#token=")) {
-  const token = decodeURIComponent(location.hash.slice("#token=".length));
-  state.authToken = token;
-  localStorage.setItem("share_together_auth_token", token);
-  // Clean URL
-  history.replaceState(null, "", location.pathname + location.search);
-  fetchUserInfo();
-} else if (location.hash.startsWith("#error=")) {
-  const errorMsg = decodeURIComponent(location.hash.slice("#error=".length));
-  history.replaceState(null, "", location.pathname + location.search);
-  alert(`微信登录失败：${errorMsg}`);
-}
 
 if (state.roomSlug) {
   showRoom(state.roomSlug);
@@ -442,17 +433,63 @@ function updateAuthUI() {
 
 async function startWechatLogin() {
   try {
-    const currentPath = location.pathname + location.search;
-    const res = await fetch(`/api/auth/wechat/url?return_url=${encodeURIComponent(currentPath)}`);
+    const res = await fetch("/api/auth/wechat/start", { method: "POST" });
     const data = await res.json();
-    if (data.auth_url) {
-      location.href = data.auth_url;
+    if (!data.poll_id) throw new Error("Failed to start login");
+
+    // Show modal with QR code and verify code
+    if (data.qrcode) {
+      els.loginQrcode.src = data.qrcode;
+      els.loginQrcode.classList.remove("hidden");
     } else {
-      alert("无法获取微信登录链接");
+      els.loginQrcode.classList.add("hidden");
     }
+    els.loginVerifyCodeText.textContent = data.verify_code;
+    els.loginModal.classList.remove("hidden");
+
+    // Start polling
+    state._loginPollTimer = setTimeout(() => pollLogin(data.poll_id), 2000);
   } catch (error) {
     alert(`登录失败：${error.message}`);
   }
+}
+
+async function pollLogin(pollId) {
+  try {
+    const res = await fetch(`/api/auth/wechat/poll?poll_id=${encodeURIComponent(pollId)}`);
+    const data = await res.json();
+
+    if (data.token) {
+      // Login complete
+      state.authToken = data.token;
+      localStorage.setItem("share_together_auth_token", data.token);
+      els.loginModal.classList.add("hidden");
+      els.loginQrcode.src = "";
+      fetchUserInfo();
+      return;
+    }
+
+    if (data.expired) {
+      els.loginModal.classList.add("hidden");
+      els.loginQrcode.src = "";
+      alert("登录已过期，请重新扫码");
+      return;
+    }
+
+    // Still waiting — keep polling
+    state._loginPollTimer = setTimeout(() => pollLogin(pollId), 2000);
+  } catch {
+    state._loginPollTimer = setTimeout(() => pollLogin(pollId), 2000);
+  }
+}
+
+function cancelLogin() {
+  if (state._loginPollTimer) {
+    clearTimeout(state._loginPollTimer);
+    state._loginPollTimer = null;
+  }
+  els.loginModal.classList.add("hidden");
+  els.loginQrcode.src = "";
 }
 
 function logout() {

@@ -60,6 +60,17 @@
         <p id="empty" class="empty hidden">No links yet. Share the first article.</p>
       </section>
     </main>
+
+    <div id="login-modal" class="login-modal hidden">
+      <div class="login-modal-content">
+        <h2>微信登录</h2>
+        <img id="login-qrcode" class="login-qrcode" src="" alt="小程序码">
+        <p class="login-verify-code">验证码：<strong id="login-verify-code-text"></strong></p>
+        <p class="login-hint">请使用微信扫描小程序码，或手动输入验证码</p>
+        <button id="login-cancel" class="secondary">取消</button>
+      </div>
+    </div>
+
     <script type="module" src="/app.js"></script>
   </body>
 </html>
