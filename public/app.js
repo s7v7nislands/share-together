@@ -6,17 +6,40 @@ const state = {
   clientId: getOrCreate("share_together_client_id", () => crypto.randomUUID()),
   adminKey: null,
   replies: {},
-  expandedReplies: new Set()
+  expandedReplies: new Set(),
+  session: getSession(),
+  user: null,
+  membership: null
 };
 
 const els = {
+  app: document.querySelector("#app"),
+  auth: document.querySelector("#auth"),
+  authLogin: document.querySelector("#auth-login"),
+  authRegister: document.querySelector("#auth-register"),
+  authError: document.querySelector("#auth-error"),
+  loginForm: document.querySelector("#login-form"),
+  registerForm: document.querySelector("#register-form"),
+  showRegister: document.querySelector("#show-register"),
+  showLogin: document.querySelector("#show-login"),
+  logoutBtn: document.querySelector("#logout-btn"),
+  topbarUser: document.querySelector("#topbar-user"),
+  topbar: document.querySelector("#topbar"),
+  content: document.querySelector("#content"),
   home: document.querySelector("#home"),
   room: document.querySelector("#room"),
   createRoom: document.querySelector("#create-room"),
   homeCreateRoom: document.querySelector("#home-create-room"),
   roomNameInput: document.querySelector("#room-name-input"),
+  roomListHeader: document.querySelector("#room-list-header"),
   roomList: document.querySelector("#room-list"),
   copyRoom: document.querySelector("#copy-room"),
+  joinRoom: document.querySelector("#join-room"),
+  manageRequests: document.querySelector("#manage-requests"),
+  requestCount: document.querySelector("#request-count"),
+  joinPending: document.querySelector("#join-pending"),
+  joinRequestsPanel: document.querySelector("#join-requests-panel"),
+  roomContent: document.querySelector("#room-content"),
   roomTitle: document.querySelector("#room-title"),
   form: document.querySelector("#submit-link"),
   urlInput: document.querySelector("#url-input"),
@@ -29,10 +52,359 @@ const els = {
   empty: document.querySelector("#empty")
 };
 
-els.createRoom.addEventListener("click", createRoom);
+// ==========================================================================
+// Auth
+// ==========================================================================
+
+els.showRegister.addEventListener("click", () => {
+  els.authLogin.classList.add("hidden");
+  els.authRegister.classList.remove("hidden");
+  els.authError.classList.add("hidden");
+});
+
+els.showLogin.addEventListener("click", () => {
+  els.authRegister.classList.add("hidden");
+  els.authLogin.classList.remove("hidden");
+  els.authError.classList.add("hidden");
+});
+
+els.logoutBtn.addEventListener("click", async () => {
+  if (state.session) {
+    await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+  }
+  clearSession();
+  showAuth();
+});
+
+els.loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  els.authError.classList.add("hidden");
+  const username = els.loginForm.username.value.trim();
+  const password = els.loginForm.password.value;
+  try {
+    const data = await api("/api/auth/login", {
+      method: "POST",
+      body: { username, password }
+    });
+    setSession(data.session);
+    state.user = data.user;
+    showContent();
+  } catch (error) {
+    showAuthError(error.message);
+  }
+});
+
+els.registerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  els.authError.classList.add("hidden");
+  const username = els.registerForm.username.value.trim();
+  const password = els.registerForm.password.value;
+  const confirmPassword = els.registerForm.confirm_password.value;
+
+  if (password !== confirmPassword) {
+    showAuthError("Passwords do not match");
+    return;
+  }
+
+  try {
+    const data = await api("/api/auth/register", {
+      method: "POST",
+      body: { username, password, confirm_password: confirmPassword }
+    });
+    setSession(data.session);
+    state.user = data.user;
+    showContent();
+  } catch (error) {
+    showAuthError(error.message);
+  }
+});
+
+function showAuthError(message) {
+  els.authError.textContent = message;
+  els.authError.classList.remove("hidden");
+}
+
+function getSession() {
+  const raw = localStorage.getItem("share_together_session");
+  if (!raw) return null;
+  try {
+    const session = JSON.parse(raw);
+    if (session?.token) return session;
+  } catch {}
+  return null;
+}
+
+function setSession(session) {
+  state.session = session;
+  localStorage.setItem("share_together_session", JSON.stringify(session));
+}
+
+function clearSession() {
+  state.session = null;
+  state.user = null;
+  localStorage.removeItem("share_together_session");
+  localStorage.removeItem("share_together_admin_key:" + (state.roomSlug || ""));
+  state.adminKey = null;
+}
+
+async function validateSession() {
+  if (!state.session) return false;
+  try {
+    const data = await api("/api/auth/me");
+    state.user = data.user;
+    return true;
+  } catch {
+    clearSession();
+    return false;
+  }
+}
+
+// ==========================================================================
+// Init
+// ==========================================================================
+
+(async function init() {
+  if (state.session) {
+    const valid = await validateSession();
+    if (valid) {
+      showContent();
+      return;
+    }
+  }
+  showAuth();
+})();
+
+function showAuth() {
+  els.auth.classList.remove("hidden");
+  els.content.classList.add("hidden");
+  els.logoutBtn.classList.add("hidden");
+  els.topbarUser.textContent = "";
+  els.topbarUser.classList.add("hidden");
+  els.home.classList.add("hidden");
+  els.room.classList.add("hidden");
+  els.app.classList.add("no-topbar-border");
+}
+
+async function showContent() {
+  els.auth.classList.add("hidden");
+  els.content.classList.remove("hidden");
+  els.logoutBtn.classList.remove("hidden");
+  els.topbarUser.textContent = state.user.username;
+  els.topbarUser.classList.remove("hidden");
+  els.app.classList.remove("no-topbar-border");
+
+  if (state.roomSlug) {
+    await showRoom(state.roomSlug);
+  } else {
+    showHome();
+  }
+}
+
+// ==========================================================================
+// Home
+// ==========================================================================
+
+function showHome() {
+  els.home.classList.remove("hidden");
+  els.room.classList.add("hidden");
+  loadRoomList();
+}
+
+async function loadRoomList() {
+  try {
+    const data = await api("/api/rooms");
+    if (!data.rooms?.length) {
+      els.roomListHeader.classList.add("hidden");
+      els.roomList.classList.add("hidden");
+      return;
+    }
+    els.roomListHeader.classList.remove("hidden");
+    els.roomList.classList.remove("hidden");
+    els.roomList.replaceChildren(
+      ...data.rooms.map((room) => {
+        const a = document.createElement("a");
+        a.className = "room-list-item";
+        a.href = `/room/${room.slug}`;
+        const name = document.createElement("span");
+        name.className = "room-list-name";
+        name.textContent = room.name || room.slug;
+        const meta = document.createElement("span");
+        meta.className = "room-list-meta";
+        meta.textContent = room.role === "owner" ? "Owner · " + relativeTime(room.last_active_at) : relativeTime(room.last_active_at);
+        a.append(name, meta);
+        return a;
+      })
+    );
+  } catch {
+    els.roomListHeader.classList.add("hidden");
+    els.roomList.classList.add("hidden");
+  }
+}
+
+// ==========================================================================
+// Room
+// ==========================================================================
+
+async function showRoom(slug) {
+  state.roomSlug = slug;
+  state.adminKey = localStorage.getItem(adminKeyStorageKey(slug));
+  els.home.classList.add("hidden");
+  els.room.classList.remove("hidden");
+
+  try {
+    const room = await api(`/api/rooms/${slug}`);
+    state.membership = room.membership;
+    setRoomTitle(room.name || room.slug);
+
+    els.joinRoom.classList.add("hidden");
+    els.manageRequests.classList.add("hidden");
+    els.joinPending.classList.add("hidden");
+    els.joinRequestsPanel.classList.add("hidden");
+    els.roomContent.classList.add("hidden");
+
+    if (room.membership.is_member) {
+      // Full access
+      els.roomContent.classList.remove("hidden");
+
+      if (room.membership.is_owner) {
+        els.roomTitle.classList.add("editable");
+        els.roomTitle.title = "Click to rename";
+        els.roomTitle.addEventListener("click", startRenameRoom);
+        els.manageRequests.classList.remove("hidden");
+        loadPendingRequestCount(slug);
+      }
+
+      loadLinks();
+      schedulePoll();
+    } else if (room.membership.pending_join) {
+      els.joinPending.classList.remove("hidden");
+    } else {
+      els.joinRoom.classList.remove("hidden");
+    }
+
+    // Owner can always claim if room has no owner
+    if (!room.owner_id && state.adminKey) {
+      els.roomContent.classList.remove("hidden");
+      if (!room.membership.is_member) {
+        state.membership = { is_member: true, is_owner: true };
+        await api(`/api/rooms/${slug}/claim`, {
+          method: "POST",
+          body: { admin_key: state.adminKey }
+        });
+        setRoomTitle(room.name || room.slug);
+        els.roomTitle.classList.add("editable");
+        els.roomTitle.title = "Click to rename";
+        els.roomTitle.addEventListener("click", startRenameRoom);
+        els.manageRequests.classList.remove("hidden");
+        loadLinks();
+        schedulePoll();
+      }
+    }
+  } catch (error) {
+    setNotice(error.message);
+    els.roomContent.classList.remove("hidden");
+  }
+}
+
+els.joinRoom.addEventListener("click", async () => {
+  try {
+    await api(`/api/rooms/${state.roomSlug}/join`, { method: "POST" });
+    els.joinRoom.classList.add("hidden");
+    els.joinPending.classList.remove("hidden");
+    state.membership = { ...state.membership, pending_join: true };
+  } catch (error) {
+    setNotice(error.message);
+  }
+});
+
+els.manageRequests.addEventListener("click", toggleRequestsPanel);
+
+async function toggleRequestsPanel() {
+  const panel = els.joinRequestsPanel;
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    return;
+  }
+
+  try {
+    const data = await api(`/api/rooms/${state.roomSlug}/requests`);
+    panel.classList.remove("hidden");
+    panel.replaceChildren();
+
+    if (!data.requests?.length) {
+      panel.innerHTML = '<p class="requests-empty">No pending requests.</p>';
+      return;
+    }
+
+    for (const req of data.requests) {
+      const row = document.createElement("div");
+      row.className = "request-row";
+
+      const name = document.createElement("span");
+      name.className = "request-username";
+      name.textContent = req.username;
+
+      const actions = document.createElement("div");
+      actions.className = "request-actions";
+
+      const approveBtn = document.createElement("button");
+      approveBtn.className = "primary small";
+      approveBtn.textContent = "Approve";
+      approveBtn.addEventListener("click", () => handleRequestAction(req.id, "approve", row));
+
+      const rejectBtn = document.createElement("button");
+      rejectBtn.className = "secondary small";
+      rejectBtn.textContent = "Reject";
+      rejectBtn.addEventListener("click", () => handleRequestAction(req.id, "reject", row));
+
+      actions.append(approveBtn, rejectBtn);
+      row.append(name, actions);
+      panel.append(row);
+    }
+  } catch (error) {
+    panel.innerHTML = `<p class="requests-error">${error.message}</p>`;
+    panel.classList.remove("hidden");
+  }
+}
+
+async function handleRequestAction(requestId, action, row) {
+  try {
+    await api(`/api/rooms/${state.roomSlug}/requests/${requestId}/${action}`, { method: "POST" });
+    row.remove();
+    loadPendingRequestCount(state.roomSlug);
+    if (!els.joinRequestsPanel.querySelector(".request-row")) {
+      els.joinRequestsPanel.innerHTML = '<p class="requests-empty">No pending requests.</p>';
+    }
+  } catch (error) {
+    setNotice(error.message);
+  }
+}
+
+async function loadPendingRequestCount(slug) {
+  try {
+    const data = await api(`/api/rooms/${slug}/requests`);
+    const count = data.requests?.length || 0;
+    if (count > 0) {
+      els.requestCount.textContent = count;
+      els.requestCount.classList.remove("hidden");
+    } else {
+      els.requestCount.classList.add("hidden");
+    }
+  } catch {
+    els.requestCount.classList.add("hidden");
+  }
+}
+
+// ==========================================================================
+// Room actions (same as before, adapted for auth)
+// ==========================================================================
+
 els.homeCreateRoom.addEventListener("click", createRoom);
+
 els.copyRoom.addEventListener("click", copyRoomLink);
+
 els.form.addEventListener("submit", submitLink);
+
 for (const tab of els.tabs) {
   tab.addEventListener("click", () => {
     state.sort = tab.dataset.sort;
@@ -42,16 +414,8 @@ for (const tab of els.tabs) {
 }
 
 window.addEventListener("focus", () => {
-  if (state.roomSlug) loadLinks();
+  if (state.roomSlug && state.membership?.is_member) loadLinks();
 });
-
-if (state.roomSlug) {
-  showRoom(state.roomSlug);
-  loadLinks();
-  schedulePoll();
-} else {
-  showHome();
-}
 
 function isUserTyping() {
   const el = document.activeElement;
@@ -60,7 +424,7 @@ function isUserTyping() {
 
 function schedulePoll() {
   setTimeout(() => {
-    if (!state.roomSlug) return;
+    if (!state.roomSlug || !state.membership?.is_member) return;
     if (!isUserTyping()) loadLinks();
     schedulePoll();
   }, 15000);
@@ -69,9 +433,13 @@ function schedulePoll() {
 async function createRoom() {
   setNotice("");
   const name = els.roomNameInput?.value.trim() || undefined;
-  const response = await api("/api/rooms", { method: "POST", body: { name } });
-  localStorage.setItem(adminKeyStorageKey(response.slug), response.admin_key);
-  location.href = `/room/${response.slug}`;
+  try {
+    const response = await api("/api/rooms", { method: "POST", body: { name } });
+    localStorage.setItem(adminKeyStorageKey(response.slug), response.admin_key);
+    location.href = `/room/${response.slug}`;
+  } catch (error) {
+    setNotice(error.message);
+  }
 }
 
 async function submitLink(event) {
@@ -85,7 +453,7 @@ async function submitLink(event) {
   try {
     const response = await api(`/api/rooms/${state.roomSlug}/links`, {
       method: "POST",
-      body: { url, tags, recommendation_note: recommendationNote, client_id: state.clientId }
+      body: { url, tags, recommendation_note: recommendationNote }
     });
     els.urlInput.value = "";
     els.tagsInput.value = "";
@@ -100,7 +468,7 @@ async function submitLink(event) {
 
 async function loadLinks() {
   try {
-    const response = await api(`/api/rooms/${state.roomSlug}/links?sort=${state.sort}&client_id=${encodeURIComponent(state.clientId)}`);
+    const response = await api(`/api/rooms/${state.roomSlug}/links?sort=${state.sort}`);
     const prev = linksFingerprint(state.links);
     const next = linksFingerprint(response.links);
     state.links = response.links;
@@ -119,9 +487,8 @@ async function toggleVote(linkId) {
   if (!current) return;
 
   const method = current.viewer_has_upvoted ? "DELETE" : "POST";
-  const query = method === "DELETE" ? `?client_id=${encodeURIComponent(state.clientId)}` : "";
-  const body = method === "POST" ? { client_id: state.clientId } : undefined;
-  const response = await api(`/api/rooms/${state.roomSlug}/links/${linkId}/vote${query}`, { method, body });
+  const body = method === "POST" ? {} : undefined;
+  const response = await api(`/api/rooms/${state.roomSlug}/links/${linkId}/vote`, { method, body });
 
   state.links = state.links.map((item) => item.id === linkId ? response.link : item);
 
@@ -133,11 +500,7 @@ async function toggleVote(linkId) {
 }
 
 async function deleteLink(link) {
-  if (!state.adminKey) return;
-  await api(`/api/rooms/${state.roomSlug}/links/${link.id}`, {
-    method: "DELETE",
-    headers: { "x-admin-key": state.adminKey }
-  });
+  await api(`/api/rooms/${state.roomSlug}/links/${link.id}`, { method: "DELETE" });
   state.links = state.links.filter((item) => item.id !== link.id);
   renderLinks();
 }
@@ -235,7 +598,7 @@ function renderLink(link, index) {
   replyBtn.addEventListener("click", () => toggleReplies(link, card));
   actions.append(replyBtn);
 
-  if (state.adminKey) {
+  if (state.membership?.is_owner) {
     const remove = document.createElement("button");
     remove.className = "delete";
     remove.type = "button";
@@ -347,8 +710,15 @@ function sameTag(left, right) {
   return left?.toLowerCase() === right?.toLowerCase();
 }
 
+// ==========================================================================
+// API (with auth)
+// ==========================================================================
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
+  if (state.session?.token) {
+    headers["authorization"] = `Bearer ${state.session.token}`;
+  }
   let body;
   if (options.body) {
     headers["content-type"] = "application/json";
@@ -356,61 +726,20 @@ async function api(path, options = {}) {
   }
   const response = await fetch(path, { ...options, headers, body });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Request failed");
+  if (!response.ok) {
+    // Session expired: clear and redirect to login
+    if (response.status === 401 && path !== "/api/auth/login" && path !== "/api/auth/register") {
+      clearSession();
+      showAuth();
+    }
+    throw new Error(data.error || "Request failed");
+  }
   return data;
 }
 
-function showHome() {
-  els.home.classList.remove("hidden");
-  els.room.classList.add("hidden");
-  loadRoomList();
-}
-
-async function loadRoomList() {
-  try {
-    const data = await api("/api/rooms");
-    if (!data.rooms?.length) {
-      els.roomList.classList.add("hidden");
-      return;
-    }
-    els.roomList.classList.remove("hidden");
-    els.roomList.replaceChildren(
-      ...data.rooms.map((room) => {
-        const a = document.createElement("a");
-        a.className = "room-list-item";
-        a.href = `/room/${room.slug}`;
-        const name = document.createElement("span");
-        name.className = "room-list-name";
-        name.textContent = room.name || room.slug;
-        const meta = document.createElement("span");
-        meta.className = "room-list-meta";
-        meta.textContent = relativeTime(room.last_active_at);
-        a.append(name, meta);
-        return a;
-      })
-    );
-  } catch {
-    els.roomList.classList.add("hidden");
-  }
-}
-
-async function showRoom(slug) {
-  state.adminKey = localStorage.getItem(adminKeyStorageKey(slug));
-  els.home.classList.add("hidden");
-  els.room.classList.remove("hidden");
-  els.roomTitle.textContent = slug;
-  try {
-    const room = await api(`/api/rooms/${slug}`);
-    setRoomTitle(room.name || room.slug);
-    if (state.adminKey) {
-      els.roomTitle.classList.add("editable");
-      els.roomTitle.title = "Click to rename";
-      els.roomTitle.addEventListener("click", startRenameRoom);
-    }
-  } catch {
-    // keep slug as fallback title
-  }
-}
+// ==========================================================================
+// UI helpers
+// ==========================================================================
 
 function setRoomTitle(name) {
   els.roomTitle.textContent = name;
@@ -418,6 +747,7 @@ function setRoomTitle(name) {
 }
 
 function startRenameRoom() {
+  if (!state.membership?.is_owner) return;
   const current = els.roomTitle.dataset.name || els.roomTitle.textContent;
   const input = document.createElement("input");
   input.type = "text";
@@ -438,7 +768,6 @@ function startRenameRoom() {
     try {
       const room = await api(`/api/rooms/${state.roomSlug}`, {
         method: "PATCH",
-        headers: { "x-admin-key": state.adminKey },
         body: { name }
       });
       setRoomTitle(room.name || room.slug);
@@ -491,7 +820,9 @@ function adminKeyStorageKey(slug) {
   return `share_together_admin_key:${slug}`;
 }
 
-// --- Replies ---
+// ==========================================================================
+// Replies (unchanged except auth in api)
+// ==========================================================================
 
 async function toggleReplies(link, card) {
   const section = card.querySelector(".replies-section");
@@ -623,7 +954,7 @@ function renderSingleReply(reply, container, depth) {
   });
   body.append(replyBtn);
 
-  if (state.adminKey) {
+  if (state.membership?.is_owner) {
     const delBtn = document.createElement("button");
     delBtn.className = "reply-delete-btn";
     delBtn.type = "button";
@@ -727,7 +1058,7 @@ async function submitReply(link, parentId, authorName, body, form, container) {
   if (!body) return;
 
   try {
-    const payload = { client_id: state.clientId, body };
+    const payload = { body };
     if (parentId) payload.parent_id = parentId;
     if (authorName) payload.author_name = authorName;
 
@@ -769,12 +1100,9 @@ async function loadRepliesForLink(link) {
 }
 
 async function deleteReply(reply, wrapper) {
-  if (!state.adminKey) return;
-
   try {
     await api(`/api/rooms/${state.roomSlug}/links/${reply.link_id}/replies/${reply.id}`, {
-      method: "DELETE",
-      headers: { "x-admin-key": state.adminKey }
+      method: "DELETE"
     });
 
     delete state.replies[reply.link_id];

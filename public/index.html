@@ -9,47 +9,94 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <main class="app">
-      <header class="topbar">
+    <main class="app" id="app">
+      <header class="topbar" id="topbar">
         <a class="brand" href="/">Share Together</a>
-        <button id="create-room" class="primary">Create room</button>
+        <div class="topbar-actions" id="topbar-actions">
+          <span class="topbar-user" id="topbar-user"></span>
+          <button id="logout-btn" class="secondary small hidden">Log out</button>
+        </div>
       </header>
 
-      <section id="home" class="home">
-        <h1>Shared article rooms for small groups</h1>
-        <p>Create a private-by-link room, paste article URLs, and let the group upvote what is worth reading.</p>
-        <div class="create-room-row">
-          <input id="room-name-input" type="text" placeholder="Room name (optional)" maxlength="64">
-          <button id="home-create-room" class="primary large">Create room</button>
+      <!-- Auth section: shown when not logged in -->
+      <section id="auth" class="auth hidden">
+        <div class="auth-card">
+          <div id="auth-login">
+            <h2>Sign in</h2>
+            <form id="login-form" class="auth-form">
+              <input name="username" type="text" placeholder="Username" required maxlength="32" autocomplete="username">
+              <input name="password" type="password" placeholder="Password" required minlength="8" autocomplete="current-password">
+              <button class="primary" type="submit">Sign in</button>
+            </form>
+            <p class="auth-switch">No account? <button id="show-register" class="link">Create one</button></p>
+          </div>
+
+          <div id="auth-register" class="hidden">
+            <h2>Create account</h2>
+            <form id="register-form" class="auth-form">
+              <input name="username" type="text" placeholder="Username" required maxlength="32" autocomplete="username">
+              <input name="password" type="password" placeholder="Password (min 8 chars, letters + numbers)" required minlength="8" autocomplete="new-password">
+              <input name="confirm_password" type="password" placeholder="Confirm password" required minlength="8" autocomplete="new-password">
+              <button class="primary" type="submit">Create account</button>
+            </form>
+            <p class="auth-switch">Already have one? <button id="show-login" class="link">Sign in</button></p>
+          </div>
+
+          <p id="auth-error" class="auth-error hidden"></p>
         </div>
-        <div id="room-list" class="room-list hidden"></div>
       </section>
 
-      <section id="room" class="room hidden">
-        <div class="room-head">
-          <div>
-            <p class="eyebrow">Room</p>
-            <h1 id="room-title"></h1>
+      <!-- App content: shown when logged in -->
+      <section id="content" class="hidden">
+        <section id="home" class="home">
+          <h1>Shared article rooms for small groups</h1>
+          <p>Create a private-by-link room, paste article URLs, and let the group upvote what is worth reading.</p>
+          <div class="create-room-row">
+            <input id="room-name-input" type="text" placeholder="Room name (optional)" maxlength="64">
+            <button id="home-create-room" class="primary large">Create room</button>
           </div>
-          <button id="copy-room" class="secondary">Copy link</button>
-        </div>
+          <div id="room-list-header" class="room-list-header hidden">Your rooms</div>
+          <div id="room-list" class="room-list hidden"></div>
+        </section>
 
-        <form id="submit-link" class="submit-form">
-          <input id="url-input" name="url" type="url" placeholder="https://example.com/article" required>
-          <input id="tags-input" name="tags" type="text" placeholder="Tags, comma separated">
-          <input id="recommendation-input" name="recommendation_note" type="text" maxlength="280" placeholder="Why do you recommend it?">
-          <button class="primary" type="submit">Share URL</button>
-        </form>
-        <p id="notice" class="notice" role="status"></p>
+        <section id="room" class="room hidden">
+          <div class="room-head">
+            <div>
+              <p class="eyebrow">Room</p>
+              <h1 id="room-title"></h1>
+            </div>
+            <div class="room-head-actions">
+              <button id="copy-room" class="secondary">Copy link</button>
+              <button id="join-room" class="primary hidden">Request to join</button>
+              <button id="manage-requests" class="secondary hidden">Requests <span id="request-count" class="badge hidden">0</span></button>
+            </div>
+          </div>
 
-        <div class="tabs" role="tablist" aria-label="Sort links">
-          <button class="tab active" data-sort="newest" type="button">Newest</button>
-          <button class="tab" data-sort="hot" type="button">Hot</button>
-        </div>
-        <div id="tag-filters" class="tag-filters hidden" aria-label="Filter by tag"></div>
+          <div id="join-pending" class="join-pending hidden">
+            <p>Your request to join this room is pending approval.</p>
+          </div>
 
-        <div id="links" class="links"></div>
-        <p id="empty" class="empty hidden">No links yet. Share the first article.</p>
+          <div id="join-requests-panel" class="join-requests-panel hidden"></div>
+
+          <div id="room-content" class="hidden">
+            <form id="submit-link" class="submit-form">
+              <input id="url-input" name="url" type="url" placeholder="https://example.com/article" required>
+              <input id="tags-input" name="tags" type="text" placeholder="Tags, comma separated">
+              <input id="recommendation-input" name="recommendation_note" type="text" maxlength="280" placeholder="Why do you recommend it?">
+              <button class="primary" type="submit">Share URL</button>
+            </form>
+            <p id="notice" class="notice" role="status"></p>
+
+            <div class="tabs" role="tablist" aria-label="Sort links">
+              <button class="tab active" data-sort="newest" type="button">Newest</button>
+              <button class="tab" data-sort="hot" type="button">Hot</button>
+            </div>
+            <div id="tag-filters" class="tag-filters hidden" aria-label="Filter by tag"></div>
+
+            <div id="links" class="links"></div>
+            <p id="empty" class="empty hidden">No links yet. Share the first article.</p>
+          </div>
+        </section>
       </section>
     </main>
     <script type="module" src="/app.js"></script>
