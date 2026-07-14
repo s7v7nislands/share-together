@@ -118,6 +118,55 @@ node cli/ima_api.js export-links --kb-id "YOUR_KB_ID" --tag my-tag --json
 
 **Zero external dependencies** — uses only Node.js built-in `fetch`, `fs`, `os`, `path`.
 
+## sync_ima — 从 ima 同步链接到 share-together
+
+`sync_ima.js` 组合了 `ima_api.js` 的链接获取能力和 `cli.js` 的提交能力，
+支持按日期或日期范围筛选后批量同步。
+
+### 用法
+
+```bash
+# 同步所有 share-together 标签的链接
+node cli/sync_ima.js -k <KB_ID> -r <room-slug>
+
+# 仅同步指定日期的链接
+node cli/sync_ima.js -k <KB_ID> -r <room-slug> --date 2025-07-01
+
+# 同步日期范围内的链接
+node cli/sync_ima.js -k <KB_ID> -r <room-slug> --from 2025-07-01 --to 2025-07-14
+
+# 预览模式（不实际提交）
+node cli/sync_ima.js -k <KB_ID> -r <room-slug> --from 2025-07-01 --to 2025-07-14 --dry-run
+
+# 使用自定义标签
+node cli/sync_ima.js -k <KB_ID> -r <room-slug> --tag my-links --date 2025-07-01
+```
+
+### 参数说明
+
+| 参数 | 简写 | 必选 | 说明 |
+|------|------|------|------|
+| `--kb-id` | `-k` | ✓ | ima 知识库 ID |
+| `--room` | `-r` | ✓ | share-together 房间 slug |
+| `--date` | | | 仅同步指定日期 (YYYY-MM-DD) |
+| `--from` | | | 起始日期（含） |
+| `--to` | | | 结束日期（含） |
+| `--tag` | | | 标签筛选 [默认: share-together] |
+| `--dry-run` | `-n` | | 预览模式，不实际提交 |
+| `--verbose` | `-v` | | 显示详细日志 |
+
+### 工作流程
+
+1. 从 ima 知识库获取带指定标签的链接（自动分页）
+2. 按日期范围筛选
+3. 通过 `get_media_info` 解析每条链接的源 URL
+4. 调用 share-together API 逐条提交到房间
+
+### 前置条件
+
+- ima 凭证已配置（同 `ima_api.js`）
+- share-together 已登录（`share-together login`）
+
 ## Environment
 
 - **Node.js >= 18** (uses built-in `fetch`, ESM)
