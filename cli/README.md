@@ -63,6 +63,61 @@ Settings are stored in `~/.share-together.json`:
 }
 ```
 
+## ima OpenAPI — export share-together links
+
+`ima_api.js` calls the [Tencent ima OpenAPI](https://ima.qq.com/agent-interface) to
+export link-type knowledge-base items tagged `share-together`, resolving each one
+to its real source URL via `get_media_info`.
+
+### Setup (credentials)
+
+Get your ClientID and APIKey at <https://ima.qq.com/agent-interface>, then:
+
+```bash
+# Option A – environment variables
+export IMA_OPENAPI_CLIENTID="your-client-id"
+export IMA_OPENAPI_APIKEY="your-api-key"
+
+# Option B – files
+mkdir -p ~/.config/ima
+echo "your-client-id" > ~/.config/ima/client_id
+echo "your-api-key"  > ~/.config/ima/api_key
+```
+
+### Run
+
+```bash
+# List knowledge bases (get the KB_ID)
+node cli/ima_api.js list-kb
+
+# Export share-together tagged links as JSON
+node cli/ima_api.js export-share-together --kb-id "YOUR_KB_ID" --json
+
+# Save as Markdown file
+node cli/ima_api.js export-share-together --kb-id "YOUR_KB_ID" --out ./links.md
+
+# Export with a different tag
+node cli/ima_api.js export-links --kb-id "YOUR_KB_ID" --tag my-tag --json
+```
+
+### All commands
+
+| Command | Description |
+|---------|-------------|
+| `list-kb` | List knowledge bases |
+| `search --query <q> --kb-id <id>` | Search a knowledge base |
+| `get-media-info --media-id <id>` | Get media detail incl. source URL |
+| `import-url --kb-id <id> --urls …` | Import web pages into a KB |
+| `list-notes` | List notebooks |
+| `list-note-by-folder --folder-id <id>` | List notes in a notebook |
+| `get-note --doc-id <id>` | Read a note body |
+| `import-note --content <c> --folder-id <id>` | Create a note |
+| `list-kb-items --kb-id <id> [--type WEB] [--tag …]` | List items in a KB |
+| `export-links --kb-id <id> [--tag …] [--json] [--out …]`| Export link items as Markdown |
+| `export-share-together --kb-id <id> [--json] [--out …]` | Shortcut for `export-links --tag share-together` |
+
+**Zero external dependencies** — uses only Node.js built-in `fetch`, `fs`, `os`, `path`.
+
 ## Environment
 
 - **Node.js >= 18** (uses built-in `fetch`, ESM)
