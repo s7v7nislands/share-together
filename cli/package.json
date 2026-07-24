@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "bin": {
-    "share-together": "./cli.js"
+    "share-together": "./cli.js",
+    "ima-api": "./ima_api.js",
+    "sync-ima": "./sync_ima.js"
   },
   "engines": {
     "node": ">=18"

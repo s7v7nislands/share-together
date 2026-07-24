@@ -5,22 +5,19 @@ description: Sync IMA knowledge base docs (links tagged "share-together") to sha
 
 # IMA → Share Together Sync
 
-## Repo context
+## How to run
 
-All scripts live under `cli/` in the repo root. Resolve the root once:
-
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-```
+All commands use `npx -p github:s7v7nislands/share-together` — no repo clone or npm
+install needed. `npx` pulls the package from GitHub and runs the specified binary.
+First run caches the package locally; subsequent runs are instant.
 
 > **Windows**: Use **Git Bash** (bundled with Git for Windows) or **WSL** — the commands
-> below are bash.  PowerShell / cmd.exe equivalents are noted where they differ.
+> below are bash.
 
 ## Quick start
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-node "$REPO_ROOT/cli/sync_ima.js" \
+npx -p github:s7v7nislands/share-together sync-ima \
   --kb-id <KB_ID> \
   --room room-85197e90533d05d0
 ```
@@ -46,13 +43,11 @@ Run daily (e.g. via cron) — each run naturally syncs only new links.
 ## Prerequisites
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-
 # 1. share-together config (validates JSON is readable)
 node -e "const c=require('fs').readFileSync(require('os').homedir()+'/.share-together.json','utf8');console.log(JSON.stringify(JSON.parse(c),null,2))"
 
 # 2. Logged in
-node "$REPO_ROOT/cli/cli.js" whoami
+npx -p github:s7v7nislands/share-together share-together whoami
 
 # 3. IMA credentials
 node -e "
@@ -68,7 +63,7 @@ for(const f of['client_id','api_key']){
 Set share-together base URL if needed:
 
 ```bash
-node "$REPO_ROOT/cli/cli.js" config --url https://share-together.s7v7nislands.workers.dev/
+npx -p github:s7v7nislands/share-together share-together config --url https://share-together.s7v7nislands.workers.dev/
 ```
 
 ## Workflow
@@ -78,13 +73,13 @@ node "$REPO_ROOT/cli/cli.js" config --url https://share-together.s7v7nislands.wo
 Ask the user if not provided. List available KBs:
 
 ```bash
-node "$REPO_ROOT/cli/ima_api.js" list-kb
+npx -p github:s7v7nislands/share-together ima-api list-kb
 ```
 
 ### 2. Dry-run
 
 ```bash
-node "$REPO_ROOT/cli/sync_ima.js" \
+npx -p github:s7v7nislands/share-together sync-ima \
   --kb-id <KB_ID> \
   --room room-85197e90533d05d0 \
   --dry-run --verbose
@@ -93,7 +88,7 @@ node "$REPO_ROOT/cli/sync_ima.js" \
 ### 3. Sync
 
 ```bash
-node "$REPO_ROOT/cli/sync_ima.js" \
+npx -p github:s7v7nislands/share-together sync-ima \
   --kb-id <KB_ID> \
   --room room-85197e90533d05d0 \
   --verbose
@@ -114,17 +109,19 @@ Summarize: ✓ synced, ⚠ duplicates, ✖ failed.
 | `--dry-run` | `-n` | No | — | Preview without submitting |
 | `--verbose` | `-v` | No | — | Verbose output |
 
-## Scripts
+## Commands
 
-| Script | Purpose |
-|--------|---------|
-| `cli/sync_ima.js` | Main sync: IMA → share-together |
-| `cli/ima_api.js` | IMA OpenAPI helper (list KBs, export links) |
-| `cli/cli.js` | share-together CLI (login, list rooms, add links) |
+| Binary | Package | Purpose |
+|--------|---------|---------|
+| `sync-ima` | `github:s7v7nislands/share-together` | Main sync: IMA → share-together |
+| `ima-api` | `github:s7v7nislands/share-together` | IMA OpenAPI helper (list KBs, export links) |
+| `share-together` | `github:s7v7nislands/share-together` | share-together CLI (login, list rooms, add links) |
+
+All invoked as: `npx -p github:s7v7nislands/share-together <binary> [args...]`
 
 ## Troubleshooting
 
-- **"Authentication required"**: `node "$REPO_ROOT/cli/cli.js" login`
+- **"Authentication required"**: `npx -p github:s7v7nislands/share-together share-together login`
 - **"缺少 ima 凭证"**: Set env vars or files in `~/.config/ima/`
-- **"Room not found"**: List rooms with `node "$REPO_ROOT/cli/cli.js" rooms`
+- **"Room not found"**: `npx -p github:s7v7nislands/share-together share-together rooms`
 - **Nothing to sync**: All links already tracked. Use `--force` for full re-sync.

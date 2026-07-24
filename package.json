@@ -10,6 +10,11 @@
     "db:migrate:remote": "wrangler d1 migrations apply share-together --remote",
     "test": "node --test test/*.test.mjs"
   },
+  "bin": {
+    "share-together": "./cli/cli.js",
+    "ima-api": "./cli/ima_api.js",
+    "sync-ima": "./cli/sync_ima.js"
+  },
   "devDependencies": {
     "wrangler": "^4.34.0"
   }
