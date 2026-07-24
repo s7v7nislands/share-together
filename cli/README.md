@@ -121,25 +121,28 @@ node cli/ima_api.js export-links --kb-id "YOUR_KB_ID" --tag my-tag --json
 ## sync_ima — 从 ima 同步链接到 share-together
 
 `sync_ima.js` 组合了 `ima_api.js` 的链接获取能力和 `cli.js` 的提交能力，
-支持按日期或日期范围筛选后批量同步。
+通过本地追踪文件实现幂等同步——每次运行只同步新增的链接。
+
+> **注意：** ima OpenAPI 的 `get_knowledge_list` 不返回 `create_time`，
+> 因此不支持按创建日期筛选。通过幂等追踪，每日运行自然只同步当天新增的链接。
 
 ### 用法
 
 ```bash
-# 同步所有 share-together 标签的链接
+# 同步新增的 share-together 链接（默认行为）
 node cli/sync_ima.js -k <KB_ID> -r <room-slug>
 
-# 仅同步指定日期的链接
-node cli/sync_ima.js -k <KB_ID> -r <room-slug> --date 2025-07-01
-
-# 同步日期范围内的链接
-node cli/sync_ima.js -k <KB_ID> -r <room-slug> --from 2025-07-01 --to 2025-07-14
+# 全量同步（忽略已同步记录）
+node cli/sync_ima.js -k <KB_ID> -r <room-slug> --force
 
 # 预览模式（不实际提交）
-node cli/sync_ima.js -k <KB_ID> -r <room-slug> --from 2025-07-01 --to 2025-07-14 --dry-run
+node cli/sync_ima.js -k <KB_ID> -r <room-slug> --dry-run
 
 # 使用自定义标签
-node cli/sync_ima.js -k <KB_ID> -r <room-slug> --tag my-links --date 2025-07-01
+node cli/sync_ima.js -k <KB_ID> -r <room-slug> --tag my-links
+
+# 详细日志
+node cli/sync_ima.js -k <KB_ID> -r <room-slug> -v
 ```
 
 ### 参数说明
@@ -148,19 +151,23 @@ node cli/sync_ima.js -k <KB_ID> -r <room-slug> --tag my-links --date 2025-07-01
 |------|------|------|------|
 | `--kb-id` | `-k` | ✓ | ima 知识库 ID |
 | `--room` | `-r` | ✓ | share-together 房间 slug |
-| `--date` | | | 仅同步指定日期 (YYYY-MM-DD) |
-| `--from` | | | 起始日期（含） |
-| `--to` | | | 结束日期（含） |
 | `--tag` | | | 标签筛选 [默认: share-together] |
+| `--force` | `-f` | | 全量同步，忽略已同步记录 |
 | `--dry-run` | `-n` | | 预览模式，不实际提交 |
 | `--verbose` | `-v` | | 显示详细日志 |
+
+### 幂等追踪
+
+通过本地文件 `~/.config/ima/synced.json` 记录每个房间已同步的 `media_id`。
+每次运行只处理新增的链接，已同步的自动跳过。适合 cron / 定时任务每日执行。
 
 ### 工作流程
 
 1. 从 ima 知识库获取带指定标签的链接（自动分页）
-2. 按日期范围筛选
+2. 幂等过滤——排除已同步的 `media_id`
 3. 通过 `get_media_info` 解析每条链接的源 URL
 4. 调用 share-together API 逐条提交到房间
+5. 更新追踪文件
 
 ### 前置条件
 
