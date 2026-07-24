@@ -5,13 +5,16 @@ description: Sync IMA knowledge base docs (links tagged "share-together") to sha
 
 # IMA → Share Together Sync
 
-## Resolve repo root
+## Repo context
+
+All scripts live under `cli/` in the repo root. Resolve the root once:
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 ```
 
-All scripts: `$REPO_ROOT/cli/sync_ima.js`, `$REPO_ROOT/cli/cli.js`, etc.
+> **Windows**: Use **Git Bash** (bundled with Git for Windows) or **WSL** — the commands
+> below are bash.  PowerShell / cmd.exe equivalents are noted where they differ.
 
 ## Quick start
 
@@ -45,15 +48,21 @@ Run daily (e.g. via cron) — each run naturally syncs only new links.
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 
-# 1. share-together config
-cat ~/.share-together.json | python3 -m json.tool
+# 1. share-together config (validates JSON is readable)
+node -e "const c=require('fs').readFileSync(require('os').homedir()+'/.share-together.json','utf8');console.log(JSON.stringify(JSON.parse(c),null,2))"
 
 # 2. Logged in
 node "$REPO_ROOT/cli/cli.js" whoami
 
 # 3. IMA credentials
-cat ~/.config/ima/client_id 2>/dev/null || echo "MISSING"
-cat ~/.config/ima/api_key 2>/dev/null || echo "MISSING"
+node -e "
+const {homedir}=require('os'),{join}=require('path'),{readFileSync}=require('fs');
+const d=join(homedir(),'.config','ima');
+for(const f of['client_id','api_key']){
+  try{const v=readFileSync(join(d,f),'utf8').trim();console.log(f+': '+(v?'SET':'EMPTY'))}
+  catch(e){console.log(f+': MISSING')}
+}
+"
 ```
 
 Set share-together base URL if needed:
