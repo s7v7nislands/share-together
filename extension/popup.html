@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Share Together</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Share Together</h1>
+    </header>
+
+    <!-- Auth required -->
+    <div id="auth-needed" class="state hidden">
+      <p>Please log in and configure your AI provider in the <a id="open-options" href="#">options page</a>.</p>
+      <button id="btn-go-options" class="btn primary">Open Settings</button>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="state hidden">
+      <div class="spinner"></div>
+      <p id="loading-msg">Generating summary...</p>
+    </div>
+
+    <!-- Share form -->
+    <div id="share-form" class="state hidden">
+      <label for="room-select">Room</label>
+      <select id="room-select">
+        <option value="">Select a room...</option>
+      </select>
+
+      <label for="summary-field">Summary <span class="ai-badge">AI</span></label>
+      <textarea id="summary-field" rows="3" maxlength="1000" placeholder="Summary will appear here..."></textarea>
+      <button id="btn-regenerate" class="btn small" title="Regenerate summary and tags">🔄 Regenerate</button>
+
+      <label for="tags-field">Tags</label>
+      <div id="tags-container">
+        <div id="tags-list"></div>
+        <input id="tag-input" type="text" placeholder="Add a tag..." maxlength="32" />
+      </div>
+
+      <div id="error-msg" class="error hidden"></div>
+
+      <div class="actions">
+        <button id="btn-share" class="btn primary">Share</button>
+      </div>
+
+      <div id="success-msg" class="success hidden">✅ Shared!</div>
+    </div>
+  </div>
+
+  <script src="ai.js" type="module"></script>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

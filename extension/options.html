@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Share Together — Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>⚙️ Share Together Settings</h1>
+
+    <!-- Profiles -->
+    <section>
+      <h2>Profiles</h2>
+      <p class="hint">Create profiles for different Share Together servers (e.g. production, local dev, staging).</p>
+
+      <div id="profiles-list"></div>
+
+      <div id="profile-form" class="profile-form">
+        <input id="profile-name" type="text" placeholder="Profile name (e.g. Production)" maxlength="32" />
+        <input id="profile-url" type="text" placeholder="https://your-worker.example.com" />
+        <div class="profile-form-actions">
+          <button id="btn-add-profile" class="btn primary small">Add Profile</button>
+          <button id="btn-cancel-profile" class="btn secondary small hidden">Cancel</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Account -->
+    <section>
+      <h2>Account</h2>
+      <div id="logged-out-state">
+        <label for="login-username">Username</label>
+        <input id="login-username" type="text" placeholder="Your username" autocomplete="username" />
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" placeholder="Your password" autocomplete="current-password" />
+        <div class="actions-row">
+          <button id="btn-login" class="btn primary">Log In</button>
+          <span class="or">or</span>
+          <button id="btn-register" class="btn secondary">Register</button>
+        </div>
+        <div id="auth-error" class="error hidden"></div>
+      </div>
+      <div id="logged-in-state" class="hidden">
+        <p class="success">✅ Logged in as <strong id="logged-in-user"></strong></p>
+        <button id="btn-logout" class="btn secondary">Log Out</button>
+      </div>
+    </section>
+
+    <!-- AI Provider -->
+    <section>
+      <h2>AI Summary &amp; Tags</h2>
+      <label for="ai-provider">Provider</label>
+      <select id="ai-provider">
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="deepseek">DeepSeek</option>
+      </select>
+
+      <label for="ai-api-key">API Key</label>
+      <input id="ai-api-key" type="password" placeholder="sk-... or sk-ant-..." />
+      <p class="hint">Your API key is stored locally in Chrome and never sent to Share Together servers.</p>
+
+      <label for="ai-model">Model (optional)</label>
+      <input id="ai-model" type="text" placeholder="Default: gpt-4o-mini / claude-3-haiku" />
+      <p class="hint">Leave blank to use the recommended default model.</p>
+    </section>
+
+    <div class="actions">
+      <button id="btn-save" class="btn primary">Save Settings</button>
+    </div>
+    <div id="save-msg" class="success hidden">✅ Settings saved!</div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

@@ -372,6 +372,7 @@ async function handleSubmitLink(request, env, room, user) {
   const sourceHost = getSourceHost(canonicalUrl);
   const tags = normalizeTags(body.tags);
   const recommendationNote = normalizeRecommendationNote(body.recommendation_note);
+  const aiSummary = normalizeAiSummary(body.ai_summary);
 
   const existing = await env.DB.prepare(
     "SELECT * FROM links WHERE room_id = ? AND canonical_url = ? AND deleted_at IS NULL"
@@ -392,13 +393,14 @@ async function handleSubmitLink(request, env, room, user) {
     source_host: sourceHost,
     metadata_status: metadata.status,
     tags: JSON.stringify(tags),
-    recommendation_note: recommendationNote
+    recommendation_note: recommendationNote,
+    ai_summary: aiSummary
   };
 
   await env.DB.prepare(
     `INSERT INTO links
-     (id, room_id, user_id, original_url, canonical_url, title, description, image_url, source_host, metadata_status, tags, recommendation_note, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (id, room_id, user_id, original_url, canonical_url, title, description, image_url, source_host, metadata_status, tags, recommendation_note, ai_summary, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     link.id,
     room.id,
@@ -412,6 +414,7 @@ async function handleSubmitLink(request, env, room, user) {
     link.metadata_status,
     link.tags,
     link.recommendation_note,
+    link.ai_summary,
     now
   ).run();
   await touchRoom(env, room.id);
@@ -725,6 +728,7 @@ function serializeLink(link) {
     metadata_status: link.metadata_status,
     tags: parseTags(link.tags),
     recommendation_note: link.recommendation_note || null,
+    ai_summary: link.ai_summary || null,
     upvote_count: link.upvote_count || 0,
     reply_count: link.reply_count || 0,
     created_at: link.created_at,
@@ -773,6 +777,12 @@ export function normalizeRecommendationNote(value) {
   if (typeof value !== "string") return null;
   const note = value.trim().replace(/\s+/g, " ").slice(0, 280);
   return note || null;
+}
+
+export function normalizeAiSummary(value) {
+  if (typeof value !== "string") return null;
+  const summary = value.trim().replace(/\s+/g, " ").slice(0, 1000);
+  return summary || null;
 }
 
 function serializeReply(reply) {

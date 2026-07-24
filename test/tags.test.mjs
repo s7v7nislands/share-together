@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeRecommendationNote, normalizeTags, parseTags } from "../src/worker.js";
+import { normalizeAiSummary, normalizeRecommendationNote, normalizeTags, parseTags } from "../src/worker.js";
 
 test("normalizes submitted tags", () => {
   assert.deepEqual(
@@ -26,4 +26,11 @@ test("normalizes recommendation notes", () => {
   assert.equal(normalizeRecommendationNote("   "), null);
   assert.equal(normalizeRecommendationNote(null), null);
   assert.equal(normalizeRecommendationNote("x".repeat(300)).length, 280);
+});
+
+test("normalizes AI summaries", () => {
+  assert.equal(normalizeAiSummary("  A concise   summary\nof the article.  "), "A concise summary of the article.");
+  assert.equal(normalizeAiSummary("   "), null);
+  assert.equal(normalizeAiSummary(null), null);
+  assert.equal(normalizeAiSummary("x".repeat(1100)).length, 1000);
 });
