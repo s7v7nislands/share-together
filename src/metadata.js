@@ -110,7 +110,10 @@ function decodeEntities(value) {
 
 function absolutizeUrl(value, baseUrl) {
   try {
-    return new URL(value, baseUrl).toString();
+    const resolved = new URL(value, baseUrl);
+    // Only allow http/https image URLs — reject data: javascript: etc.
+    if (!["http:", "https:"].includes(resolved.protocol)) return null;
+    return resolved.toString();
   } catch {
     return null;
   }

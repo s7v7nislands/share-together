@@ -209,6 +209,9 @@ async function handleLogin(request, env) {
   const username = (body.username || "").trim();
   if (!username) return json({ error: "Username is required" }, 400);
 
+  // Per-username rate limit to prevent password spraying and brute force
+  await rateLimit(env, `login:user:${username.toLowerCase()}`, 5, 900);
+
   const user = await env.DB.prepare(
     "SELECT id, username, password_hash FROM users WHERE username = ?"
   ).bind(username).first();
@@ -647,7 +650,7 @@ async function hashPassword(password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+    { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
     key,
     256
   );
@@ -663,7 +666,7 @@ async function verifyPassword(password, stored) {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+    { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
     key,
     256
   );
@@ -829,7 +832,13 @@ async function sha256(value) {
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" }
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "strict-transport-security": "max-age=63072000; includeSubDomains; preload"
+    }
   });
 }
 

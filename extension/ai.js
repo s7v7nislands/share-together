@@ -13,8 +13,7 @@ function log(...args) {
  * @returns {Promise<{summary: string, tags: string[]}>}
  */
 export async function generateSummaryAndTags(config, page) {
-  const maskedKey = config.apiKey ? config.apiKey.slice(0, 4) + '***' + config.apiKey.slice(-4) : '(none)';
-  log('provider:', config.provider, 'model:', config.model || 'default', 'key:', maskedKey);
+  log('provider:', config.provider, 'model:', config.model || 'default');
   log('page title:', page.title?.slice(0, 80));
   log('page text length:', page.text?.length || 0, 'chars');
 
@@ -77,8 +76,7 @@ async function generateOpenAICompatible(config, page, baseUrl, defaultModel) {
   if (!response.ok) {
     const err = await response.text();
     log('error response body:', err);
-    const maskedKey = config.apiKey ? config.apiKey.slice(0, 6) + '***' + config.apiKey.slice(-4) : '(none)';
-    throw new Error(`Provider: ${config.provider} | Endpoint: ${baseUrl} | Key: ${maskedKey} | HTTP ${response.status}: ${err}`);
+    throw new Error(`Provider: ${config.provider} | HTTP ${response.status}: ${err}`);
   }
 
   const data = await response.json();
