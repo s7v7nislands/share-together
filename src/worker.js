@@ -697,14 +697,11 @@ async function getMembership(env, roomId, userId) {
 // ============================================================================
 // Password hashing (PBKDF2)
 //
-// Cloudflare Workers enforces a maximum of 100,000 PBKDF2 iterations on the
-// native PBKDF2 API. Legacy passwords were hashed with 600k iterations.
-// We verify those using a manual PBKDF2 implementation over HMAC-SHA256
-// (which has no iteration limit) and auto-migrate to the current format.
+// We use a versioned hash format to support future upgrades:
+//   v2:saltHex:hashHex  → 100,000 iterations (current)
+//   saltHex:hashHex     → legacy 600,000 iterations
 //
-// Hash formats:
-//   v2:saltHex:hashHex  → 100,000 iterations (current, native PBKDF2)
-//   saltHex:hashHex     → legacy 600,000 iterations (manual PBKDF2 verify)
+// Compatibility date must be < 2025-03-15 to allow 600k iterations.
 // ============================================================================
 
 const PBKDF2_ITERATIONS = 100000;
@@ -723,63 +720,29 @@ async function hashPassword(password) {
   return `v2:${saltHex}:${hashHex}`;
 }
 
-// Manual PBKDF2-HMAC-SHA256 — used only for legacy 600k-iteration hashes
-// because the Workers native PBKDF2 API caps iterations at 100k.
-async function pbkdf2Legacy(password, salt, iterations, keyLen) {
-  const enc = new TextEncoder();
-  const pwKey = await crypto.subtle.importKey("raw", enc.encode(password), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-
-  // PBKDF2: DK = T1 || T2 || ... where Ti = U1 ^ U2 ^ ... ^ Uc
-  // For dkLen=32 (SHA-256 output), we only need T1 (block index 1).
-  const hLen = 32; // SHA-256
-  const blocks = Math.ceil(keyLen / hLen);
-  const result = new Uint8Array(blocks * hLen);
-
-  for (let block = 1; block <= blocks; block++) {
-    // Build salt || INT(block) (4-byte big-endian)
-    const saltBlock = new Uint8Array(salt.length + 4);
-    saltBlock.set(salt);
-    saltBlock[salt.length] = (block >>> 24) & 0xff;
-    saltBlock[salt.length + 1] = (block >>> 16) & 0xff;
-    saltBlock[salt.length + 2] = (block >>> 8) & 0xff;
-    saltBlock[salt.length + 3] = block & 0xff;
-
-    // U1 = HMAC(password, salt || INT(block))
-    let u = new Uint8Array(await crypto.subtle.sign("HMAC", pwKey, saltBlock));
-    let xor = u.slice();
-
-    // U2..Uc, XOR each into accumulator
-    for (let i = 1; i < iterations; i++) {
-      u = new Uint8Array(await crypto.subtle.sign("HMAC", pwKey, u));
-      for (let j = 0; j < hLen; j++) {
-        xor[j] ^= u[j];
-      }
-    }
-
-    result.set(xor, (block - 1) * hLen);
-  }
-
-  return result.slice(0, keyLen);
-}
-
 // Returns { valid, legacy } — legacy=true means the password matched a
 // legacy hash and should be migrated to the current format.
 async function verifyPassword(password, stored) {
   if (!stored) return { valid: false, legacy: false };
 
-  // Legacy format: no version prefix → 600k iterations (manual PBKDF2)
+  // Legacy format: no version prefix → 600k iterations
   if (!stored.startsWith("v")) {
     const [saltHex, hashHex] = stored.split(":");
     if (!saltHex || !hashHex) return { valid: false, legacy: false };
     const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
-    const expectedHash = new Uint8Array(hashHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
-    const computed = await pbkdf2Legacy(password, salt, 600000, 32);
-    const match = computed.length === expectedHash.length &&
-      computed.every((b, i) => b === expectedHash[i]);
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
+      key,
+      256
+    );
+    const computed = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const match = computed === hashHex;
     return { valid: match, legacy: match };
   }
 
-  // v2 format: v2:saltHex:hashHex → 100k iterations (native PBKDF2)
+  // v2 format: v2:saltHex:hashHex → 100k iterations
   const [, saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return { valid: false, legacy: false };
   const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));

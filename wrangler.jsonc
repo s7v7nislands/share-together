@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "share-together",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-03-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "single-page-application",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "share-together",
+      "database_id": "c5dec0cf-e9b4-4fe2-b740-da05098b0d27",
+      "migrations_dir": "migrations",
+    },
+    {
+      "binding": "share_together",
+      "database_name": "share-together",
+      "database_id": "c5dec0cf-e9b4-4fe2-b740-da05098b0d27",
+    },
+  ]
+}
