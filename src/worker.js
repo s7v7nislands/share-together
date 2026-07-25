@@ -716,8 +716,6 @@ async function verifyPassword(password, stored) {
   return newHashHex === hashHex;
 }
 
-import { validatePassword, normalizeUsername, normalizeRoomName, normalizeTags, parseTags, normalizeRecommendationNote, normalizeAiSummary, normalizeReplyBody, normalizeAuthorName } from "./validate.js";
-
 // ============================================================================
 // Existing helpers (mostly unchanged)
 // ============================================================================
