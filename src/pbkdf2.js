@@ -1,14 +1,18 @@
 // PBKDF2-HMAC-SHA256 using WebAssembly SHA-256.
 // Bypasses Workers 100k PBKDF2 iteration limit.
-import SHA256 from "SHA256";
+import sha256Wasm from "./sha256.wasm";
 
 let instance = null;
 
-function getInstance() {
-  if (!instance) {
-    instance = new WebAssembly.Instance(sha256Wasm, {});
-  }
-  return instance;
+// Eagerly initialize WASM at module load time
+const _instancePromise = WebAssembly.instantiate(sha256Wasm, {}).then(
+  (r) => { instance = r.instance || r; }
+);
+
+// Ensures WASM is ready before any PBKDF2 call.
+// Safe to call multiple times — resolves immediately after first init.
+async function ensureWasm() {
+  await _instancePromise;
 }
 
 const BLOCK_SIZE = 64;
@@ -54,7 +58,8 @@ function hmacSha256(key, message, out, outOffset = 0) {
   sha256raw(_outerMsg.subarray(0, BLOCK_SIZE + DIGEST_SIZE), out, outOffset);
 }
 
-export function pbkdf2hex(password, salt, iterations, keyLen) {
+export async function pbkdf2hex(password, salt, iterations, keyLen) {
+  await ensureWasm();
   const hLen = DIGEST_SIZE;
   const blocks = Math.ceil(keyLen / hLen);
   const pwBytes = new TextEncoder().encode(password);

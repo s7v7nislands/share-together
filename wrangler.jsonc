@@ -3,9 +3,6 @@
   "name": "share-together",
   "main": "src/worker.js",
   "compatibility_date": "2025-01-01",
-  "wasm_modules": {
-    "SHA256": "./src/sha256.wasm"
-  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

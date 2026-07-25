@@ -709,13 +709,13 @@ const PBKDF2_ITERATIONS = 100000;
 
 async function hashPassword(password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = pbkdf2hex(password, salt, PBKDF2_ITERATIONS, 32);
+  const hash = await pbkdf2hex(password, salt, PBKDF2_ITERATIONS, 32);
   return `v2:${bytesToHex(salt)}:${hash}`;
 }
 
 // Returns { valid, legacy } — legacy=true means the password matched a
 // legacy hash and should be migrated to the current format.
-function verifyPassword(password, stored) {
+async function verifyPassword(password, stored) {
   if (!stored) return { valid: false, legacy: false };
 
   const iterations = stored.startsWith("v") ? PBKDF2_ITERATIONS : 600000;
@@ -733,7 +733,7 @@ function verifyPassword(password, stored) {
   if (!saltHex || !hashHex) return { valid: false, legacy: false };
 
   const salt = hexToBytes(saltHex);
-  const computed = pbkdf2hex(password, salt, iterations, 32);
+  const computed = await pbkdf2hex(password, salt, iterations, 32);
 
   const match = computed === hashHex;
   return { valid: match, legacy: match && !stored.startsWith("v") };
