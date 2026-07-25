@@ -709,10 +709,23 @@ async function getMembership(env, roomId, userId) {
 
 const PBKDF2_ITERATIONS = 100000;
 
+// Hex conversion helpers (Buffer is not available in Workers nodejs_compat)
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToHex(bytes) {
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function hashPasswordSync(password) {
-  const salt = Buffer.from(crypto.getRandomValues(new Uint8Array(16)));
-  const hash = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256");
-  return `v2:${salt.toString("hex")}:${hash.toString("hex")}`;
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = new Uint8Array(pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256"));
+  return `v2:${bytesToHex(salt)}:${bytesToHex(hash)}`;
 }
 
 // Returns { valid, legacy } — legacy=true means the password matched a
@@ -724,20 +737,22 @@ function verifyPassword(password, stored) {
   if (!stored.startsWith("v")) {
     const [saltHex, hashHex] = stored.split(":");
     if (!saltHex || !hashHex) return { valid: false, legacy: false };
-    const salt = Buffer.from(saltHex, "hex");
-    const expected = Buffer.from(hashHex, "hex");
-    const computed = pbkdf2Sync(password, salt, 600000, 32, "sha256");
-    const match = expected.length === computed.length && expected.equals(computed);
+    const salt = hexToBytes(saltHex);
+    const expected = hexToBytes(hashHex);
+    const computed = new Uint8Array(pbkdf2Sync(password, salt, 600000, 32, "sha256"));
+    if (computed.length !== expected.length) return { valid: false, legacy: false };
+    const match = computed.every((b, i) => b === expected[i]);
     return { valid: match, legacy: match };
   }
 
   // v2 format: v2:saltHex:hashHex → 100k iterations
   const [, saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return { valid: false, legacy: false };
-  const salt = Buffer.from(saltHex, "hex");
-  const expected = Buffer.from(hashHex, "hex");
-  const computed = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256");
-  const match = expected.length === computed.length && expected.equals(computed);
+  const salt = hexToBytes(saltHex);
+  const expected = hexToBytes(hashHex);
+  const computed = new Uint8Array(pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256"));
+  if (computed.length !== expected.length) return { valid: false, legacy: false };
+  const match = computed.every((b, i) => b === expected[i]);
   return { valid: match, legacy: false };
 }
 
