@@ -1,7 +1,6 @@
 import { fetchMetadata } from "./metadata.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
 import { validatePassword, normalizeUsername, normalizeRoomName, normalizeTags, parseTags, normalizeRecommendationNote, normalizeAiSummary, normalizeReplyBody, normalizeAuthorName } from "./validate.js";
-import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
 
 export default {
   async fetch(request, env) {
