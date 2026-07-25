@@ -710,10 +710,20 @@ async function hashPassword(password) {
 async function verifyPassword(password, stored) {
   if (!stored) return false;
 
-  // Legacy format: no version prefix → 600k iterations (unsupported in Workers)
+  // Legacy format: no version prefix → 600k iterations
   if (!stored.startsWith("v")) {
-    console.warn("[auth] legacy password hash detected — 600k iterations not supported by Workers runtime. User must reset password.");
-    return false;
+    const [saltHex, hashHex] = stored.split(":");
+    if (!saltHex || !hashHex) return false;
+    const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
+      key,
+      256
+    );
+    const computed = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    return computed === hashHex;
   }
 
   // v2 format: v2:saltHex:hashHex → 100k iterations
