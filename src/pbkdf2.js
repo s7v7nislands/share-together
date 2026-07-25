@@ -29,13 +29,12 @@ const _uBuf2 = new Uint8Array(DIGEST_SIZE);
 const _xorAcc = new Uint8Array(DIGEST_SIZE);
 
 function sha256raw(data, out, outOffset = 0) {
-  const inst = getInstance();
-  const bufPtr = inst.exports.Hash_GetBuffer();
-  const mem = new Uint8Array(inst.exports.memory.buffer);
+  const bufPtr = instance.exports.Hash_GetBuffer();
+  const mem = new Uint8Array(instance.exports.memory.buffer);
   mem.subarray(bufPtr, bufPtr + data.length + 64).set(data);
-  inst.exports.Hash_Init(256);
-  inst.exports.Hash_Update(data.length);
-  inst.exports.Hash_Final(0);
+  instance.exports.Hash_Init(256);
+  instance.exports.Hash_Update(data.length);
+  instance.exports.Hash_Final(0);
   out.set(mem.subarray(bufPtr, bufPtr + DIGEST_SIZE), outOffset);
 }
 
