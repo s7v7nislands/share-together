@@ -1,3 +1,4 @@
+import { pbkdf2Sync } from "node:crypto";
 import { fetchMetadata } from "./metadata.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
 
@@ -193,7 +194,7 @@ async function handleRegister(request, env) {
   const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
   if (existing) return json({ error: "Username already taken" }, 409);
 
-  const passwordHash = await hashPassword(body.password);
+  const passwordHash = hashPasswordSync(body.password);
   const userId = crypto.randomUUID();
   const now = new Date().toISOString();
 
@@ -231,7 +232,7 @@ async function handleLogin(request, env) {
 
   // Auto-migrate legacy hash to v2 format on successful login
   if (pwResult.legacy) {
-    const newHash = await hashPassword(body.password);
+    const newHash = hashPasswordSync(body.password);
     await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(newHash, user.id).run();
   }
 
@@ -269,7 +270,7 @@ async function handleChangePassword(request, env, user) {
   }
 
   // Hash and store the new password
-  const newHash = await hashPassword(newPassword);
+  const newHash = hashPasswordSync(newPassword);
   await env.DB.prepare(
     "UPDATE users SET password_hash = ? WHERE id = ?"
   ).bind(newHash, user.id).run();
@@ -697,110 +698,47 @@ async function getMembership(env, roomId, userId) {
 // ============================================================================
 // Password hashing (PBKDF2)
 //
-// We use a versioned hash format to support future upgrades:
-//   v2:saltHex:hashHex  → 100,000 iterations (current, native PBKDF2)
-//   saltHex:hashHex     → legacy 600,000 iterations
+// Workers runtime caps Web Crypto PBKDF2 at 100k iterations. We use
+// Node.js crypto (nodejs_compat) for all PBKDF2 — legacy 600k and
+// current 100k — at native speed. Legacy hashes are auto-migrated to
+// v2 format on successful login.
 //
-// Workers runtime caps native PBKDF2 at 100k iterations regardless of
-// compatibility_date. Legacy 600k hashes are verified via manual PBKDF2
-// built on HMAC-SHA256 (which has no iteration limit). On successful
-// verification the hash is auto-migrated to v2.
+//   v2:saltHex:hashHex  → 100,000 iterations (current)
+//   saltHex:hashHex     → legacy 600,000 iterations
 // ============================================================================
 
 const PBKDF2_ITERATIONS = 100000;
 
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
-    key,
-    256
-  );
-  const saltHex = [...salt].map((b) => b.toString(16).padStart(2, "0")).join("");
-  const hashHex = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `v2:${saltHex}:${hashHex}`;
-}
-
-// Manual PBKDF2-HMAC-SHA256 — the Workers native PBKDF2 API caps
-// iterations at 100k, so we implement the 600k path ourselves using
-// individual HMAC calls (which have no iteration limit).
-// Returns the derived key bytes, or throws on error.
-async function pbkdf2Hmac(passwordBytes, salt, iterations, keyLen) {
-  const hLen = 32; // SHA-256 output
-  const blocks = Math.ceil(keyLen / hLen);
-  const dk = new Uint8Array(blocks * hLen);
-
-  const pwKey = await crypto.subtle.importKey(
-    "raw", passwordBytes,
-    { name: "HMAC", hash: "SHA-256" },
-    false, ["sign"]
-  );
-
-  for (let block = 1; block <= blocks; block++) {
-    // salt || INT(block) as 4-byte big-endian
-    const input = new Uint8Array(salt.length + 4);
-    input.set(salt);
-    input[salt.length]     = (block >>> 24) & 0xff;
-    input[salt.length + 1] = (block >>> 16) & 0xff;
-    input[salt.length + 2] = (block >>> 8) & 0xff;
-    input[salt.length + 3] = block & 0xff;
-
-    // U1 = HMAC(password, salt || INT(block))
-    let u = new Uint8Array(await crypto.subtle.sign("HMAC", pwKey, input));
-    // Accumulate XOR in-place
-    const xor = new Uint8Array(u);
-
-    for (let i = 1; i < iterations; i++) {
-      u = new Uint8Array(await crypto.subtle.sign("HMAC", pwKey, u));
-      for (let j = 0; j < hLen; j++) xor[j] ^= u[j];
-    }
-
-    dk.set(xor, (block - 1) * hLen);
-  }
-
-  return dk.slice(0, keyLen);
+function hashPasswordSync(password) {
+  const salt = Buffer.from(crypto.getRandomValues(new Uint8Array(16)));
+  const hash = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256");
+  return `v2:${salt.toString("hex")}:${hash.toString("hex")}`;
 }
 
 // Returns { valid, legacy } — legacy=true means the password matched a
 // legacy hash and should be migrated to the current format.
-async function verifyPassword(password, stored) {
+function verifyPassword(password, stored) {
   if (!stored) return { valid: false, legacy: false };
 
   // Legacy format: no version prefix → 600k iterations
   if (!stored.startsWith("v")) {
     const [saltHex, hashHex] = stored.split(":");
     if (!saltHex || !hashHex) return { valid: false, legacy: false };
-    const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
-    const expected = new Uint8Array(hashHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
-
-    let computed;
-    try {
-      computed = await pbkdf2Hmac(new TextEncoder().encode(password), salt, 600000, 32);
-    } catch (e) {
-      console.error("[auth] legacy pbkdf2 failed:", e.message);
-      return { valid: false, legacy: false };
-    }
-
-    if (computed.length !== expected.length) return { valid: false, legacy: false };
-    const match = computed.every((b, i) => b === expected[i]);
+    const salt = Buffer.from(saltHex, "hex");
+    const expected = Buffer.from(hashHex, "hex");
+    const computed = pbkdf2Sync(password, salt, 600000, 32, "sha256");
+    const match = expected.length === computed.length && expected.equals(computed);
     return { valid: match, legacy: match };
   }
 
-  // v2 format: v2:saltHex:hashHex → 100k iterations (native PBKDF2)
+  // v2 format: v2:saltHex:hashHex → 100k iterations
   const [, saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return { valid: false, legacy: false };
-  const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
-    key,
-    256
-  );
-  const newHashHex = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return { valid: newHashHex === hashHex, legacy: false };
+  const salt = Buffer.from(saltHex, "hex");
+  const expected = Buffer.from(hashHex, "hex");
+  const computed = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256");
+  const match = expected.length === computed.length && expected.equals(computed);
+  return { valid: match, legacy: false };
 }
 
 export function validatePassword(value) {
