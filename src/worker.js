@@ -618,13 +618,13 @@ async function authenticate(env, request) {
   const session = await env.DB.prepare(
     `SELECT u.id, u.username
      FROM sessions s JOIN users u ON s.user_id = u.id
-     WHERE s.token_hash = ? AND s.expires_at > ?`
-  ).bind(tokenHash, new Date().toISOString()).first();
+     WHERE s.token_hash = ?`
+  ).bind(tokenHash).first();
 
   if (!session) return null;
 
-  // Extend session by 7 days
-  const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  // Extend session by 100 years
+  const newExpiry = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000).toISOString();
   await env.DB.prepare(
     "UPDATE sessions SET expires_at = ? WHERE token_hash = ?"
   ).bind(newExpiry, tokenHash).run();
@@ -636,7 +636,7 @@ async function createSession(env, userId) {
   const token = randomToken(32);
   const tokenHash = await sha256(token);
   const now = new Date().toISOString();
-  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const expires = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000).toISOString();
 
   await env.DB.prepare(
     "INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)"
