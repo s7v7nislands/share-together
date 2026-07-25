@@ -1,4 +1,4 @@
-import { pbkdf2hex, hexToBytes, bytesToHex } from "./pbkdf2.js";
+import { validatePassword, normalizeUsername, normalizeRoomName, normalizeTags, parseTags, normalizeRecommendationNote, normalizeAiSummary, normalizeReplyBody, normalizeAuthorName } from "./validate.js";
 import { fetchMetadata } from "./metadata.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
 
@@ -221,19 +221,8 @@ async function handleLogin(request, env) {
     "SELECT id, username, password_hash FROM users WHERE username = ?"
   ).bind(username).first();
 
-  if (!user) {
+  if (!user || !(await verifyPassword(body.password || "", user.password_hash))) {
     return json({ error: "Invalid username or password" }, 401);
-  }
-
-  const pwResult = await verifyPassword(body.password || "", user.password_hash);
-  if (!pwResult.valid) {
-    return json({ error: "Invalid username or password" }, 401);
-  }
-
-  // Auto-migrate legacy hash to v2 format on successful login
-  if (pwResult.legacy) {
-    const newHash = await hashPassword(body.password);
-    await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(newHash, user.id).run();
   }
 
   const session = await createSession(env, user.id);
@@ -264,8 +253,7 @@ async function handleChangePassword(request, env, user) {
   if (!row) return json({ error: "User not found" }, 404);
 
   // Verify current password
-  const pwResult = await verifyPassword(currentPassword, row.password_hash);
-  if (!pwResult.valid) {
+  if (!(await verifyPassword(currentPassword, row.password_hash))) {
     return json({ error: "Current password is incorrect" }, 401);
   }
 
@@ -697,46 +685,35 @@ async function getMembership(env, roomId, userId) {
 
 // ============================================================================
 // Password hashing (PBKDF2)
-//
-// Uses our WASM PBKDF2 (src/pbkdf2.js) which bypasses the Workers
-// runtime 100k iteration limit by using bare SHA-256 WASM + JS HMAC.
-//
-//   v2:saltHex:hashHex  → 100,000 iterations (current)
-//   saltHex:hashHex     → legacy 600,000 iterations
 // ============================================================================
 
-const PBKDF2_ITERATIONS = 100000;
-
 async function hashPassword(password) {
+  const encoder = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await pbkdf2hex(password, salt, PBKDF2_ITERATIONS, 32);
-  return `v2:${bytesToHex(salt)}:${hash}`;
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
+    key,
+    256
+  );
+  const saltHex = [...salt].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${saltHex}:${hashHex}`;
 }
 
-// Returns { valid, legacy } — legacy=true means the password matched a
-// legacy hash and should be migrated to the current format.
 async function verifyPassword(password, stored) {
-  if (!stored) return { valid: false, legacy: false };
-
-  const iterations = stored.startsWith("v") ? PBKDF2_ITERATIONS : 600000;
-  const parts = stored.split(":");
-
-  let saltHex, hashHex;
-  if (stored.startsWith("v")) {
-    if (parts.length !== 3) return { valid: false, legacy: false };
-    [, saltHex, hashHex] = parts;
-  } else {
-    if (parts.length !== 2) return { valid: false, legacy: false };
-    [saltHex, hashHex] = parts;
-  }
-
-  if (!saltHex || !hashHex) return { valid: false, legacy: false };
-
-  const salt = hexToBytes(saltHex);
-  const computed = await pbkdf2hex(password, salt, iterations, 32);
-
-  const match = computed === hashHex;
-  return { valid: match, legacy: match && !stored.startsWith("v") };
+  const [saltHex, hashHex] = stored.split(":");
+  if (!saltHex || !hashHex) return false;
+  const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
+    key,
+    256
+  );
+  const newHashHex = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return newHashHex === hashHex;
 }
 
 import { validatePassword, normalizeUsername, normalizeRoomName, normalizeTags, parseTags, normalizeRecommendationNote, normalizeAiSummary, normalizeReplyBody, normalizeAuthorName } from "./validate.js";
