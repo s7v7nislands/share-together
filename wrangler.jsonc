@@ -3,7 +3,6 @@
   "name": "share-together",
   "main": "src/worker.js",
   "compatibility_date": "2026-05-01",
-  "compatibility_flags": ["no_pbkdf2_limit"],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
