@@ -698,10 +698,13 @@ async function getMembership(env, roomId, userId) {
 // Password hashing (PBKDF2)
 //
 // We use a versioned hash format to support future upgrades:
-//   v2:saltHex:hashHex  → 100,000 iterations (current)
+//   v2:saltHex:hashHex  → 100,000 iterations (current, native PBKDF2)
 //   saltHex:hashHex     → legacy 600,000 iterations
 //
-// Compatibility date must be < 2025-03-15 to allow 600k iterations.
+// Workers runtime caps native PBKDF2 at 100k iterations regardless of
+// compatibility_date. Legacy 600k hashes are verified via manual PBKDF2
+// built on HMAC-SHA256 (which has no iteration limit). On successful
+// verification the hash is auto-migrated to v2.
 // ============================================================================
 
 const PBKDF2_ITERATIONS = 100000;
@@ -720,6 +723,46 @@ async function hashPassword(password) {
   return `v2:${saltHex}:${hashHex}`;
 }
 
+// Manual PBKDF2-HMAC-SHA256 — the Workers native PBKDF2 API caps
+// iterations at 100k, so we implement the 600k path ourselves using
+// individual HMAC calls (which have no iteration limit).
+// Returns the derived key bytes, or throws on error.
+async function pbkdf2Hmac(passwordBytes, salt, iterations, keyLen) {
+  const hLen = 32; // SHA-256 output
+  const blocks = Math.ceil(keyLen / hLen);
+  const dk = new Uint8Array(blocks * hLen);
+
+  const pwKey = await crypto.subtle.importKey(
+    "raw", passwordBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false, ["sign"]
+  );
+
+  for (let block = 1; block <= blocks; block++) {
+    // salt || INT(block) as 4-byte big-endian
+    const input = new Uint8Array(salt.length + 4);
+    input.set(salt);
+    input[salt.length]     = (block >>> 24) & 0xff;
+    input[salt.length + 1] = (block >>> 16) & 0xff;
+    input[salt.length + 2] = (block >>> 8) & 0xff;
+    input[salt.length + 3] = block & 0xff;
+
+    // U1 = HMAC(password, salt || INT(block))
+    let u = new Uint8Array(await crypto.subtle.sign("HMAC", pwKey, input));
+    // Accumulate XOR in-place
+    const xor = new Uint8Array(u);
+
+    for (let i = 1; i < iterations; i++) {
+      u = new Uint8Array(await crypto.subtle.sign("HMAC", pwKey, u));
+      for (let j = 0; j < hLen; j++) xor[j] ^= u[j];
+    }
+
+    dk.set(xor, (block - 1) * hLen);
+  }
+
+  return dk.slice(0, keyLen);
+}
+
 // Returns { valid, legacy } — legacy=true means the password matched a
 // legacy hash and should be migrated to the current format.
 async function verifyPassword(password, stored) {
@@ -730,19 +773,22 @@ async function verifyPassword(password, stored) {
     const [saltHex, hashHex] = stored.split(":");
     if (!saltHex || !hashHex) return { valid: false, legacy: false };
     const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-    const bits = await crypto.subtle.deriveBits(
-      { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
-      key,
-      256
-    );
-    const computed = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    const match = computed === hashHex;
+    const expected = new Uint8Array(hashHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
+
+    let computed;
+    try {
+      computed = await pbkdf2Hmac(new TextEncoder().encode(password), salt, 600000, 32);
+    } catch (e) {
+      console.error("[auth] legacy pbkdf2 failed:", e.message);
+      return { valid: false, legacy: false };
+    }
+
+    if (computed.length !== expected.length) return { valid: false, legacy: false };
+    const match = computed.every((b, i) => b === expected[i]);
     return { valid: match, legacy: match };
   }
 
-  // v2 format: v2:saltHex:hashHex → 100k iterations
+  // v2 format: v2:saltHex:hashHex → 100k iterations (native PBKDF2)
   const [, saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return { valid: false, legacy: false };
   const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
