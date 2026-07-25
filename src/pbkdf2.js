@@ -1,6 +1,6 @@
 // PBKDF2-HMAC-SHA256 using WebAssembly SHA-256.
 // Bypasses Workers 100k PBKDF2 iteration limit.
-import sha256Wasm from "./sha256.wasm";
+import SHA256 from "SHA256";
 
 let instance = null;
 
