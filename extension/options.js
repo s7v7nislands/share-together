@@ -22,6 +22,11 @@ const aiApiKey = document.getElementById('ai-api-key');
 const aiModel = document.getElementById('ai-model');
 const btnSave = document.getElementById('btn-save');
 const saveMsg = document.getElementById('save-msg');
+const cpCurrent = document.getElementById('cp-current');
+const cpNew = document.getElementById('cp-new');
+const btnChangePassword = document.getElementById('btn-change-password');
+const cpError = document.getElementById('cp-error');
+const cpSuccess = document.getElementById('cp-success');
 
 let profiles = [];
 let activeProfileId = null;
@@ -228,6 +233,82 @@ function showLoggedIn(username) {
 function showAuthError(msg) {
   authError.textContent = msg;
   authError.classList.remove('hidden');
+}
+
+// ---- Change Password ----
+btnChangePassword.addEventListener('click', handleChangePassword);
+
+async function handleChangePassword() {
+  const currentPassword = cpCurrent.value;
+  const newPassword = cpNew.value;
+
+  cpError.classList.add('hidden');
+  cpSuccess.classList.add('hidden');
+
+  if (!currentPassword || !newPassword) {
+    cpError.textContent = 'Both fields are required.';
+    cpError.classList.remove('hidden');
+    return;
+  }
+
+  if (currentPassword === newPassword) {
+    cpError.textContent = 'New password must be different from current password.';
+    cpError.classList.remove('hidden');
+    return;
+  }
+
+  if (newPassword.length < 8 || !/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+    cpError.textContent = 'Password must be at least 8 characters with a letter and a number.';
+    cpError.classList.remove('hidden');
+    return;
+  }
+
+  const baseUrl = getActiveProfileUrl();
+  if (!baseUrl) {
+    cpError.textContent = 'No active profile configured.';
+    cpError.classList.remove('hidden');
+    return;
+  }
+
+  const settings = await chrome.storage.local.get(['session']);
+  if (!settings.session?.token) {
+    cpError.textContent = 'Not logged in.';
+    cpError.classList.remove('hidden');
+    return;
+  }
+
+  btnChangePassword.disabled = true;
+  btnChangePassword.textContent = 'Changing...';
+
+  try {
+    const response = await fetch(`${baseUrl}/api/auth/change-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.session.token}`
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Request failed');
+    }
+
+    cpSuccess.textContent = '✅ Password changed!';
+    cpSuccess.classList.remove('hidden');
+    cpCurrent.value = '';
+    cpNew.value = '';
+  } catch (err) {
+    cpError.textContent = err.message;
+    cpError.classList.remove('hidden');
+  } finally {
+    btnChangePassword.disabled = false;
+    btnChangePassword.textContent = 'Change Password';
+  }
 }
 
 // ---- Logout ----

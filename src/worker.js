@@ -48,6 +48,10 @@ async function handleApi(request, env, url) {
     return handleLogout(request, env, user);
   }
 
+  if (request.method === "POST" && url.pathname === "/api/auth/change-password") {
+    return handleChangePassword(request, env, user);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/auth/me") {
     return json({ user });
   }
@@ -222,6 +226,43 @@ async function handleLogin(request, env) {
 
   const session = await createSession(env, user.id);
   return json({ user: { id: user.id, username: user.username }, session });
+}
+
+async function handleChangePassword(request, env, user) {
+  const body = await readJson(request);
+  const currentPassword = body.current_password || "";
+  const newPassword = body.new_password || "";
+
+  if (!currentPassword || !newPassword) {
+    return json({ error: "Both current and new password are required" }, 400);
+  }
+
+  if (!validatePassword(newPassword)) {
+    return json({ error: "Password must be at least 8 characters with at least one letter and one number" }, 400);
+  }
+
+  if (currentPassword === newPassword) {
+    return json({ error: "New password must be different from current password" }, 400);
+  }
+
+  // Fetch the user's current password hash from DB
+  const row = await env.DB.prepare(
+    "SELECT password_hash FROM users WHERE id = ?"
+  ).bind(user.id).first();
+  if (!row) return json({ error: "User not found" }, 404);
+
+  // Verify current password
+  if (!(await verifyPassword(currentPassword, row.password_hash))) {
+    return json({ error: "Current password is incorrect" }, 401);
+  }
+
+  // Hash and store the new password
+  const newHash = await hashPassword(newPassword);
+  await env.DB.prepare(
+    "UPDATE users SET password_hash = ? WHERE id = ?"
+  ).bind(newHash, user.id).run();
+
+  return json({ ok: true });
 }
 
 async function handleLogout(request, env, user) {
@@ -643,30 +684,46 @@ async function getMembership(env, roomId, userId) {
 
 // ============================================================================
 // Password hashing (PBKDF2)
+//
+// Cloudflare Workers enforces a maximum of 100,000 PBKDF2 iterations.
+// We use a versioned hash format to support future upgrades:
+//   v2:saltHex:hashHex  → 100,000 iterations (current)
+//   saltHex:hashHex     → legacy 600,000 iterations (unsupported — forces reset)
 // ============================================================================
+
+const PBKDF2_ITERATIONS = 100000;
 
 async function hashPassword(password) {
   const encoder = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
+    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
     key,
     256
   );
   const saltHex = [...salt].map((b) => b.toString(16).padStart(2, "0")).join("");
   const hashHex = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `${saltHex}:${hashHex}`;
+  return `v2:${saltHex}:${hashHex}`;
 }
 
 async function verifyPassword(password, stored) {
-  const [saltHex, hashHex] = stored.split(":");
+  if (!stored) return false;
+
+  // Legacy format: no version prefix → 600k iterations (unsupported in Workers)
+  if (!stored.startsWith("v")) {
+    console.warn("[auth] legacy password hash detected — 600k iterations not supported by Workers runtime. User must reset password.");
+    return false;
+  }
+
+  // v2 format: v2:saltHex:hashHex → 100k iterations
+  const [, saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return false;
   const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
+    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
     key,
     256
   );

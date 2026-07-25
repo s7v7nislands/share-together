@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import {
-  cmdLogin, cmdRegister, cmdLogout, cmdWhoami,
+  cmdLogin, cmdRegister, cmdLogout, cmdWhoami, cmdChangePassword,
   cmdRooms, cmdRoomCreate,
   cmdLinks, cmdAdd,
   cmdConfig
@@ -78,6 +78,7 @@ Commands:
   login     [username] [password]    Log in with username/password
   register  [username] [password]    Register a new account
   logout                             Log out
+  passwd                             Change password
 
   whoami                             Show current user
 
@@ -125,6 +126,9 @@ switch (command) {
     break;
   case "logout":
     await cmdLogout(rest, opts);
+    break;
+  case "passwd":
+    await cmdChangePassword(rest, opts);
     break;
   case "whoami":
     await cmdWhoami(rest, opts);

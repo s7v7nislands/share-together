@@ -100,6 +100,13 @@ export class ApiClient {
     this.sessionToken = null;
   }
 
+  async changePassword(currentPassword, newPassword) {
+    return this.post("/api/auth/change-password", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+  }
+
   async whoami() {
     return this.get("/api/auth/me");
   }

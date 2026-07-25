@@ -106,6 +106,36 @@ export async function cmdLogout(args, opts) {
   }
 }
 
+export async function cmdChangePassword(args, opts) {
+  try {
+    const api = await ApiClient.fromConfig();
+    const current = args[0] || (await prompt("Current password: "));
+    const password = args[1] || (await prompt("New password: "));
+    const confirm = args[2] || (await prompt("Confirm new password: "));
+
+    if (password !== confirm) {
+      console.error(red("✖") + " Passwords do not match");
+      process.exit(1);
+    }
+
+    if (current === password) {
+      console.error(red("✖") + " New password must be different from current password");
+      process.exit(1);
+    }
+
+    if (password.length < 8 || !/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      console.error(red("✖") + " Password must be at least 8 characters with at least one letter and one number");
+      process.exit(1);
+    }
+
+    await api.changePassword(current, password);
+    console.log(green("✓") + " Password changed successfully");
+  } catch (err) {
+    console.error(wrapError(err));
+    process.exit(1);
+  }
+}
+
 export async function cmdWhoami(args, opts) {
   try {
     const api = await ApiClient.fromConfig();
