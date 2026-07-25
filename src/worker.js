@@ -1,4 +1,4 @@
-import { pbkdf2, createSHA256 } from "hash-wasm";
+import { pbkdf2hex, hexToBytes, bytesToHex } from "./pbkdf2.js";
 import { fetchMetadata } from "./metadata.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
 
@@ -698,9 +698,8 @@ async function getMembership(env, roomId, userId) {
 // ============================================================================
 // Password hashing (PBKDF2)
 //
-// Workers runtime caps Web Crypto and Node.js crypto PBKDF2 at 100k
-// iterations. We use hash-wasm (WebAssembly PBKDF2) which runs at
-// near-native speed with no iteration limit.
+// Uses our WASM PBKDF2 (src/pbkdf2.js) which bypasses the Workers
+// runtime 100k iteration limit by using bare SHA-256 WASM + JS HMAC.
 //
 //   v2:saltHex:hashHex  → 100,000 iterations (current)
 //   saltHex:hashHex     → legacy 600,000 iterations
@@ -708,31 +707,15 @@ async function getMembership(env, roomId, userId) {
 
 const PBKDF2_ITERATIONS = 100000;
 
-// Hex conversion (Buffer not available in Workers)
-function hexToBytes(hex) {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-  }
-  return bytes;
-}
-
-function bytesToHex(bytes) {
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 async function hashPassword(password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await pbkdf2({
-    password, salt, iterations: PBKDF2_ITERATIONS,
-    hashLength: 32, hashFunction: createSHA256(),
-  });
+  const hash = pbkdf2hex(password, salt, PBKDF2_ITERATIONS, 32);
   return `v2:${bytesToHex(salt)}:${hash}`;
 }
 
 // Returns { valid, legacy } — legacy=true means the password matched a
 // legacy hash and should be migrated to the current format.
-async function verifyPassword(password, stored) {
+function verifyPassword(password, stored) {
   if (!stored) return { valid: false, legacy: false };
 
   const iterations = stored.startsWith("v") ? PBKDF2_ITERATIONS : 600000;
@@ -740,11 +723,9 @@ async function verifyPassword(password, stored) {
 
   let saltHex, hashHex;
   if (stored.startsWith("v")) {
-    // v2 format: v2:saltHex:hashHex
     if (parts.length !== 3) return { valid: false, legacy: false };
     [, saltHex, hashHex] = parts;
   } else {
-    // Legacy format: saltHex:hashHex
     if (parts.length !== 2) return { valid: false, legacy: false };
     [saltHex, hashHex] = parts;
   }
@@ -752,26 +733,13 @@ async function verifyPassword(password, stored) {
   if (!saltHex || !hashHex) return { valid: false, legacy: false };
 
   const salt = hexToBytes(saltHex);
-  const computed = await pbkdf2({
-    password, salt, iterations,
-    hashLength: 32, hashFunction: createSHA256(),
-  });
+  const computed = pbkdf2hex(password, salt, iterations, 32);
 
   const match = computed === hashHex;
   return { valid: match, legacy: match && !stored.startsWith("v") };
 }
 
-export function validatePassword(value) {
-  if (typeof value !== "string") return false;
-  return value.length >= 8 && /[a-zA-Z]/.test(value) && /[0-9]/.test(value);
-}
-
-export function normalizeUsername(value) {
-  if (typeof value !== "string") return null;
-  const name = value.trim().replace(/\s+/g, " ").slice(0, 32);
-  if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) return null;
-  return name;
-}
+import { validatePassword, normalizeUsername, normalizeRoomName, normalizeTags, parseTags, normalizeRecommendationNote, normalizeAiSummary, normalizeReplyBody, normalizeAuthorName } from "./validate.js";
 
 // ============================================================================
 // Existing helpers (mostly unchanged)
@@ -826,54 +794,7 @@ function serializeLink(link) {
   };
 }
 
-export function normalizeRoomName(value) {
-  if (typeof value !== "string") return null;
-  const name = value.trim().replace(/\s+/g, " ").slice(0, 64);
-  return name || null;
-}
 
-export function normalizeTags(value) {
-  const rawTags = Array.isArray(value)
-    ? value
-    : typeof value === "string"
-      ? value.split(",")
-      : [];
-
-  const seen = new Set();
-  const tags = [];
-  for (const rawTag of rawTags) {
-    if (typeof rawTag !== "string") continue;
-    const tag = rawTag.trim().replace(/^#+/, "").replace(/\s+/g, " ").slice(0, 32);
-    const key = tag.toLowerCase();
-    if (!tag || seen.has(key)) continue;
-    seen.add(key);
-    tags.push(tag);
-    if (tags.length >= 8) break;
-  }
-  return tags;
-}
-
-export function parseTags(value) {
-  if (!value) return [];
-  try {
-    const tags = JSON.parse(value);
-    return Array.isArray(tags) ? normalizeTags(tags) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function normalizeRecommendationNote(value) {
-  if (typeof value !== "string") return null;
-  const note = value.trim().replace(/\s+/g, " ").slice(0, 280);
-  return note || null;
-}
-
-export function normalizeAiSummary(value) {
-  if (typeof value !== "string") return null;
-  const summary = value.trim().replace(/\s+/g, " ").slice(0, 1000);
-  return summary || null;
-}
 
 function serializeReply(reply) {
   return {
@@ -888,18 +809,7 @@ function serializeReply(reply) {
   };
 }
 
-export function normalizeReplyBody(value) {
-  if (typeof value !== "string") return null;
-  const body = value.trim().replace(/\s+/g, " ").slice(0, 1000);
-  return body || null;
-}
 
-export function normalizeAuthorName(value, userId) {
-  if (typeof value === "string" && value.trim()) {
-    return value.trim().replace(/\s+/g, " ").slice(0, 32);
-  }
-  return `anon-${userId.slice(0, 6)}`;
-}
 
 function clientIp(request) {
   return request.headers.get("cf-connecting-ip") || "unknown";

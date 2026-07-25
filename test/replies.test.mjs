@@ -1,4 +1,4 @@
-import { normalizeReplyBody, normalizeAuthorName } from "../src/worker.js";
+import { normalizeReplyBody, normalizeAuthorName } from "../src/validate.js";
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 

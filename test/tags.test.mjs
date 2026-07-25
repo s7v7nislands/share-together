@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeAiSummary, normalizeRecommendationNote, normalizeTags, parseTags } from "../src/worker.js";
+import { normalizeAiSummary, normalizeRecommendationNote, normalizeTags, parseTags } from "../src/validate.js";
 
 test("normalizes submitted tags", () => {
   assert.deepEqual(
