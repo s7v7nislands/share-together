@@ -1,4 +1,4 @@
-import { pbkdf2Sync } from "node:crypto";
+import { pbkdf2, createSHA256 } from "hash-wasm";
 import { fetchMetadata } from "./metadata.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
 
@@ -194,7 +194,7 @@ async function handleRegister(request, env) {
   const existing = await env.DB.prepare("SELECT id FROM users WHERE username = ?").bind(username).first();
   if (existing) return json({ error: "Username already taken" }, 409);
 
-  const passwordHash = hashPasswordSync(body.password);
+  const passwordHash = await hashPassword(body.password);
   const userId = crypto.randomUUID();
   const now = new Date().toISOString();
 
@@ -232,7 +232,7 @@ async function handleLogin(request, env) {
 
   // Auto-migrate legacy hash to v2 format on successful login
   if (pwResult.legacy) {
-    const newHash = hashPasswordSync(body.password);
+    const newHash = await hashPassword(body.password);
     await env.DB.prepare("UPDATE users SET password_hash = ? WHERE id = ?").bind(newHash, user.id).run();
   }
 
@@ -270,7 +270,7 @@ async function handleChangePassword(request, env, user) {
   }
 
   // Hash and store the new password
-  const newHash = hashPasswordSync(newPassword);
+  const newHash = await hashPassword(newPassword);
   await env.DB.prepare(
     "UPDATE users SET password_hash = ? WHERE id = ?"
   ).bind(newHash, user.id).run();
@@ -698,10 +698,9 @@ async function getMembership(env, roomId, userId) {
 // ============================================================================
 // Password hashing (PBKDF2)
 //
-// Workers runtime caps Web Crypto PBKDF2 at 100k iterations. We use
-// Node.js crypto (nodejs_compat) for all PBKDF2 — legacy 600k and
-// current 100k — at native speed. Legacy hashes are auto-migrated to
-// v2 format on successful login.
+// Workers runtime caps Web Crypto and Node.js crypto PBKDF2 at 100k
+// iterations. We use hash-wasm (WebAssembly PBKDF2) which runs at
+// near-native speed with no iteration limit.
 //
 //   v2:saltHex:hashHex  → 100,000 iterations (current)
 //   saltHex:hashHex     → legacy 600,000 iterations
@@ -709,7 +708,7 @@ async function getMembership(env, roomId, userId) {
 
 const PBKDF2_ITERATIONS = 100000;
 
-// Hex conversion helpers (Buffer is not available in Workers nodejs_compat)
+// Hex conversion (Buffer not available in Workers)
 function hexToBytes(hex) {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
@@ -722,38 +721,44 @@ function bytesToHex(bytes) {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function hashPasswordSync(password) {
+async function hashPassword(password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = new Uint8Array(pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256"));
-  return `v2:${bytesToHex(salt)}:${bytesToHex(hash)}`;
+  const hash = await pbkdf2({
+    password, salt, iterations: PBKDF2_ITERATIONS,
+    hashLength: 32, hashFunction: createSHA256(),
+  });
+  return `v2:${bytesToHex(salt)}:${hash}`;
 }
 
 // Returns { valid, legacy } — legacy=true means the password matched a
 // legacy hash and should be migrated to the current format.
-function verifyPassword(password, stored) {
+async function verifyPassword(password, stored) {
   if (!stored) return { valid: false, legacy: false };
 
-  // Legacy format: no version prefix → 600k iterations
-  if (!stored.startsWith("v")) {
-    const [saltHex, hashHex] = stored.split(":");
-    if (!saltHex || !hashHex) return { valid: false, legacy: false };
-    const salt = hexToBytes(saltHex);
-    const expected = hexToBytes(hashHex);
-    const computed = new Uint8Array(pbkdf2Sync(password, salt, 600000, 32, "sha256"));
-    if (computed.length !== expected.length) return { valid: false, legacy: false };
-    const match = computed.every((b, i) => b === expected[i]);
-    return { valid: match, legacy: match };
+  const iterations = stored.startsWith("v") ? PBKDF2_ITERATIONS : 600000;
+  const parts = stored.split(":");
+
+  let saltHex, hashHex;
+  if (stored.startsWith("v")) {
+    // v2 format: v2:saltHex:hashHex
+    if (parts.length !== 3) return { valid: false, legacy: false };
+    [, saltHex, hashHex] = parts;
+  } else {
+    // Legacy format: saltHex:hashHex
+    if (parts.length !== 2) return { valid: false, legacy: false };
+    [saltHex, hashHex] = parts;
   }
 
-  // v2 format: v2:saltHex:hashHex → 100k iterations
-  const [, saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return { valid: false, legacy: false };
+
   const salt = hexToBytes(saltHex);
-  const expected = hexToBytes(hashHex);
-  const computed = new Uint8Array(pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256"));
-  if (computed.length !== expected.length) return { valid: false, legacy: false };
-  const match = computed.every((b, i) => b === expected[i]);
-  return { valid: match, legacy: false };
+  const computed = await pbkdf2({
+    password, salt, iterations,
+    hashLength: 32, hashFunction: createSHA256(),
+  });
+
+  const match = computed === hashHex;
+  return { valid: match, legacy: match && !stored.startsWith("v") };
 }
 
 export function validatePassword(value) {
