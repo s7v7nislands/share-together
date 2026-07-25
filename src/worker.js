@@ -705,13 +705,6 @@ async function hashPassword(password) {
 
 async function verifyPassword(password, stored) {
   if (!stored) return false;
-
-  // Legacy 600k hash — can't verify on free plan, tell user to reset
-  if (!stored.startsWith("v")) {
-    return false;
-  }
-
-  // v2 format: v2:saltHex:hashHex → 100k iterations
   const [, saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return false;
   const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
