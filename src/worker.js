@@ -1,6 +1,6 @@
-import { pbkdf2hex, hexToBytes, bytesToHex } from "./pbkdf2.js";
-import { validatePassword, normalizeUsername, normalizeRoomName, normalizeTags, parseTags, normalizeRecommendationNote, normalizeAiSummary, normalizeReplyBody, normalizeAuthorName } from "./validate.js";
 import { fetchMetadata } from "./metadata.js";
+import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
+import { validatePassword, normalizeUsername, normalizeRoomName, normalizeTags, parseTags, normalizeRecommendationNote, normalizeAiSummary, normalizeReplyBody, normalizeAuthorName } from "./validate.js";
 import { assertPublicHttpUrl, getSourceHost, normalizeUrl } from "./url-utils.js";
 
 export default {
@@ -685,21 +685,46 @@ async function getMembership(env, roomId, userId) {
 }
 
 // ============================================================================
-// Password hashing (PBKDF2 via WASM to bypass Workers 100k limit)
+// Password hashing (PBKDF2 — 100k iterations, Workers free-plan compatible)
 // ============================================================================
 
+const PBKDF2_ITERATIONS = 100000;
+
 async function hashPassword(password) {
+  const encoder = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(16));
-  const hash = await pbkdf2hex(password, salt, 600000, 32);
-  return `${bytesToHex(salt)}:${hash}`;
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    key,
+    256
+  );
+  const saltHex = [...salt].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `v2:${saltHex}:${hashHex}`;
 }
 
 async function verifyPassword(password, stored) {
-  const [saltHex, hashHex] = stored.split(":");
+  if (!stored) return false;
+
+  // Legacy 600k hash — can't verify on free plan, tell user to reset
+  if (!stored.startsWith("v")) {
+    return false;
+  }
+
+  // v2 format: v2:saltHex:hashHex → 100k iterations
+  const [, saltHex, hashHex] = stored.split(":");
   if (!saltHex || !hashHex) return false;
-  const salt = hexToBytes(saltHex);
-  const computed = await pbkdf2hex(password, salt, 600000, 32);
-  return computed === hashHex;
+  const salt = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    key,
+    256
+  );
+  const newHashHex = [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return newHashHex === hashHex;
 }
 
 // ============================================================================
