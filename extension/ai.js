@@ -32,9 +32,9 @@ export async function generateSummaryAndTags(config, page) {
 const SYSTEM_PROMPT = `You are a helpful assistant that summarizes web articles and suggests tags.
 Given the title and text content of a web article, do two things:
 1. Write a concise summary in 2-3 sentences. Keep it under 500 characters. Write in the same language as the article.
-2. Choose exactly ONE tag from the predefined list below that best matches the article. If NONE of the predefined tags fit the article at all, then generate 1-2 new relevant tags (lowercase, single words or short phrases) instead.
+2. First, look through the eight predefined tags below and pick the ONE tag that best matches the article as a category. If NONE of the predefined tags fit, generate a suitable category tag instead. Then also generate 1-3 additional specific tags (lowercase, single words or short phrases) that describe the article's content.
 
-Predefined tags (pick at most one of these):
+Predefined category tags (pick exactly one):
 - AI
 - Web3与金融创新
 - ESG与组织运营
@@ -45,13 +45,12 @@ Predefined tags (pick at most one of these):
 - 营销叙事与表达技巧
 
 Tag rules:
-- If a predefined tag fits the article, return ONLY that one tag (NOT multiple predefined tags).
-- If no predefined tag fits, generate 1-2 new tags (lowercase, short phrases).
-- Never mix predefined tags with generated tags.
-- Never return more than 2 tags.
+- Always include exactly ONE category tag — from the predefined list if one fits, otherwise generate one.
+- Also generate 1-3 additional freeform tags (lowercase, short phrases) describing the specific content.
+- Total tags: 2-4 (1 category + 1-3 generated).
 
 Return ONLY valid JSON in this exact format:
-{"summary": "...", "tags": ["tag1"]}
+{"summary": "...", "tags": ["category", "tag1", "tag2"]}
 
 Do not include any other text, markdown, or explanation.`;
 
